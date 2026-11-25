@@ -1,0 +1,15 @@
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Redis } from 'ioredis';
+
+// Health probe only: Redis carries BullMQ jobs and nothing else (ADR 0003).
+@Injectable()
+export class RedisService extends Redis implements OnModuleDestroy {
+  constructor() {
+    // Fail commands fast when Redis is down instead of queueing them forever.
+    super(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: 1 });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.quit();
+  }
+}
