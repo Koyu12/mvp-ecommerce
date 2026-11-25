@@ -1,3 +1,7 @@
+## Git attribution
+
+Commits and PRs are authored by the repo owner only. Never add `Co-Authored-By: Claude` trailers to commit messages, and never add "Generated with Claude Code" lines to PR or issue bodies.
+
 ## Agent skills
 
 ### Issue tracker
