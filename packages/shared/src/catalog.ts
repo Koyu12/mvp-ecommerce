@@ -39,7 +39,14 @@ export const VariantInput = z.object({
   image: z.url().nullable().optional(),
 });
 export type VariantInput = z.input<typeof VariantInput>;
-export const VariantUpdate = VariantInput.extend({ archived: z.boolean() }).partial();
+// Setting Stock needs the Stock the Admin last saw: checkout decrements it concurrently, so a stale form must
+// get 409 rather than overwrite a reservation.
+export const VariantUpdate = VariantInput.extend({ archived: z.boolean(), expectedStock: z.int().min(0) })
+  .partial()
+  .refine((v) => v.stock === undefined || v.expectedStock !== undefined, {
+    path: ['expectedStock'],
+    message: 'required when setting stock',
+  });
 export type VariantUpdate = z.input<typeof VariantUpdate>;
 
 // What a Variant sells for: its own price if set, otherwise its Product's.

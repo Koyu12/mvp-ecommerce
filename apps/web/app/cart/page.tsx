@@ -75,6 +75,9 @@ export default function CartPage() {
           <p>
             Total: <strong>{formatIdr(cart.total)}</strong>
           </p>
+          <p>
+            <Link href="/checkout">Check out</Link>
+          </p>
         </>
       )}
     </main>
