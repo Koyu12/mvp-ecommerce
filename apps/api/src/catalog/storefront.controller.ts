@@ -66,11 +66,12 @@ export class StorefrontController {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: { id: true, name: true, categoryId: true, price: true, variants: { where: ON_SALE, select: { price: true, stock: true } } },
+        select: { id: true, name: true, categoryId: true, price: true, images: true, variants: { where: ON_SALE, select: { price: true, stock: true } } },
       }),
     ]);
-    const items = rows.map(({ variants, price, ...p }) => ({
+    const items = rows.map(({ variants, price, images, ...p }) => ({
       ...p,
+      image: images[0] ?? null,
       fromPrice: Math.min(...variants.map((v) => effectivePrice(v, { price }))),
       inStock: variants.some((v) => v.stock > 0),
     }));
@@ -86,6 +87,7 @@ export class StorefrontController {
         name: true,
         description: true,
         price: true,
+        images: true,
         category: { select: { id: true, name: true } },
         optionTypes: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -102,7 +104,7 @@ export class StorefrontController {
         variants: {
           where: ON_SALE,
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: { id: true, price: true, stock: true, optionValues: { select: { id: true } } },
+          select: { id: true, price: true, stock: true, image: true, optionValues: { select: { id: true } } },
         },
       },
     });
@@ -115,6 +117,7 @@ export class StorefrontController {
         optionValueIds: v.optionValues.map((o) => o.id).sort(),
         effectivePrice: effectivePrice(v, { price }),
         stock: v.stock,
+        image: v.image,
       })),
     };
   }

@@ -162,15 +162,18 @@ export type ProductSummary = {
   // Lowest effective price among its Variants on sale.
   fromPrice: number;
   inStock: boolean;
+  // Its main image, if it has any.
+  image: string | null;
 };
 export type ProductPage = { items: ProductSummary[]; total: number; page: number; pageSize: number };
 
-export type StorefrontVariant = { id: string; optionValueIds: string[]; effectivePrice: number; stock: number };
+export type StorefrontVariant = { id: string; optionValueIds: string[]; effectivePrice: number; stock: number; image: string | null };
 export type StorefrontProduct = {
   id: string;
   name: string;
   description: string;
   category: Category;
+  images: string[];
   // Only the Option values some Variant on sale uses, so every pick can resolve to a Variant.
   optionTypes: OptionType[];
   variants: StorefrontVariant[];

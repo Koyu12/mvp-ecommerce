@@ -388,8 +388,8 @@ describe('Storefront', () => {
     const { body: first } = await t.http().get(`/api/products?categoryId=${cat.id}&pageSize=2`).expect(200);
     expect(first).toEqual({
       items: [
-        { id: c.id, name: 'Tee C', categoryId: cat.id, fromPrice: 100_000, inStock: true },
-        { id: b.id, name: 'Tee B', categoryId: cat.id, fromPrice: 90_000, inStock: true },
+        { id: c.id, name: 'Tee C', categoryId: cat.id, fromPrice: 100_000, inStock: true, image: null },
+        { id: b.id, name: 'Tee B', categoryId: cat.id, fromPrice: 90_000, inStock: true, image: null },
       ],
       total: 3,
       page: 1,
@@ -457,10 +457,11 @@ describe('Storefront', () => {
       name: 'Hoodie',
       description: 'About Hoodie',
       category: { id: cat.id, name: cat.name },
+      images: [],
       optionTypes: [{ id: size.id, name: size.name, values: [{ id: s, value: 'S' }, { id: m, value: 'M' }] }],
       variants: expect.arrayContaining([
-        { id: variants[0].id, optionValueIds: [s], effectivePrice: 200_000, stock: 0 },
-        { id: variants[1].id, optionValueIds: [m], effectivePrice: 220_000, stock: 4 },
+        { id: variants[0].id, optionValueIds: [s], effectivePrice: 200_000, stock: 0, image: null },
+        { id: variants[1].id, optionValueIds: [m], effectivePrice: 220_000, stock: 4, image: null },
       ]),
     });
     expect(body.variants).toHaveLength(2);

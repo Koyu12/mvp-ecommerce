@@ -99,6 +99,7 @@ function Listing() {
           <ul>
             {page.items.map((p) => (
               <li key={p.id}>
+                {p.image && <img src={p.image} alt="" width={80} />}{' '}
                 <Link href={`/products/${p.id}`}>{p.name}</Link> from {formatIdr(p.fromPrice)}
                 {!p.inStock && ' (out of stock)'}
               </li>

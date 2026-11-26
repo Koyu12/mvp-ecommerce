@@ -115,6 +115,8 @@ describe('Image uploads', () => {
     it('rejects image URLs that are not from our storage', async () => {
       await product(['https://evil.example/x.png'], 400);
       await product([`${PUBLIC_URL}.evil.example/x.png`], 400);
+      // Resolves outside the storage path once a browser normalises it.
+      await product([`${PUBLIC_URL}/images/../../x.png`], 400);
       const created = await product();
       await admin.patch(`/api/admin/products/${created.id}`).send({ images: ['javascript:alert(1)'] }).expect(400);
     });
@@ -144,5 +146,24 @@ describe('Image uploads', () => {
         .expect(201);
       expect(variant.image).toBeNull();
     });
+  });
+
+  it('shows Product and Variant images on the storefront, with the main image in the listing', async () => {
+    const [main, second, red] = [await upload(), await upload(), await upload()];
+    const { body: category } = await admin.post('/api/admin/categories').send({ name: `Tops ${randomUUID().slice(0, 8)}` }).expect(201);
+    const { body: p } = await admin
+      .post('/api/admin/products')
+      .send({ name: 'Pictured tee', description: '', categoryId: category.id, price: 100_000, optionTypeIds: [], images: [main, second] })
+      .expect(201);
+    const { body: variant } = await admin
+      .post(`/api/admin/products/${p.id}/variants`)
+      .send({ sku: `SKU-${randomUUID()}`, stock: 1, optionValueIds: [], image: red })
+      .expect(201);
+
+    const { body: page } = await t.http().get(`/api/products/${p.id}`).expect(200);
+    expect(page.images).toEqual([main, second]);
+    expect(page.variants).toEqual([expect.objectContaining({ id: variant.id, image: red })]);
+    const { body: list } = await t.http().get(`/api/products?categoryId=${category.id}`).expect(200);
+    expect(list.items).toEqual([expect.objectContaining({ id: p.id, image: main })]);
   });
 });

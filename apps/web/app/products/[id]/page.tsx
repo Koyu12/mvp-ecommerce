@@ -65,6 +65,10 @@ export default function ProductPage() {
         <Link href={`/products?categoryId=${product.category.id}`}>{product.category.name}</Link>
       </p>
       <h1>{product.name}</h1>
+      {/* The picked Variant's own image leads when it has one. */}
+      {[...new Set([variant?.image, ...product.images].filter((url): url is string => !!url))].map((url, i) => (
+        <img key={url} src={url} alt={`${product.name}, image ${i + 1}`} width={i === 0 ? 400 : 100} />
+      ))}
       <p>{product.description}</p>
       {product.optionTypes.map((t) => (
         <label key={t.id}>
