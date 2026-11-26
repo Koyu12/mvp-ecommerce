@@ -14,6 +14,7 @@ import { Prisma } from '@prisma/client';
 import { EmailQueue, orderEmailJobId } from '../email/email.queue';
 import { Clock } from '../infra/clock';
 import { PrismaService } from '../infra/prisma.service';
+import { PaymentsService } from '../payments/payments.service';
 import { SettingsService } from '../settings/settings.service';
 
 const SUMMARY_FIELDS = { id: true, number: true, status: true, total: true, createdAt: true } satisfies Prisma.OrderSelect;
@@ -28,6 +29,7 @@ const ORDER_FIELDS = {
   city: true,
   region: true,
   postalCode: true,
+  paymentUrl: true,
   items: {
     orderBy: { position: 'asc' },
     select: { variantId: true, productName: true, sku: true, options: true, unitPrice: true, quantity: true, lineTotal: true },
@@ -39,12 +41,13 @@ const toSummary = ({ createdAt, ...o }: Prisma.OrderGetPayload<{ select: typeof 
   ...o,
   createdAt: createdAt.toISOString(),
 });
-const toOrder = ({ id, number, status, total, createdAt, subtotal, shippingFee, items, ...address }: OrderRow): Order => ({
+const toOrder = ({ id, number, status, total, createdAt, subtotal, shippingFee, items, paymentUrl, ...address }: OrderRow): Order => ({
   ...toSummary({ id, number, status, total, createdAt }),
   subtotal,
   shippingFee,
   items,
   address,
+  paymentUrl,
 });
 
 // Checkout and a Customer's Orders. Every read is scoped to the Customer, so another Customer's Order answers 404.
@@ -57,13 +60,14 @@ export class OrdersService {
     private readonly settings: SettingsService,
     private readonly emails: EmailQueue,
     private readonly clock: Clock,
+    private readonly payments: PaymentsService,
   ) {}
 
-  // Buys the Customer's whole Cart as one pending_payment Order. Idempotent per Customer and key: a repeat,
-  // or a concurrent duplicate, returns the first Order and changes nothing.
+  // Buys the Customer's whole Cart as one pending_payment Order and starts its payment. Idempotent per Customer and key:
+  // a repeat, or a concurrent duplicate, returns the first Order and changes nothing, except starting a payment that failed.
   async checkout(user: { id: string; email: string }, idempotencyKey: string, { addressId }: CheckoutInput): Promise<Order> {
     const existing = await this.findByKey(user.id, idempotencyKey);
-    if (existing) return existing;
+    if (existing) return this.withPayment(existing, user.email);
     let orderId: string;
     try {
       orderId = await this.prisma.$transaction((tx) => this.place(tx, user.id, idempotencyKey, addressId), {
@@ -75,12 +79,18 @@ export class OrdersService {
       // A concurrent request with the same key won: its Order fails our insert on the unique key,
       // or its reservation leaves our Stock short. Either way, answer with its Order.
       const winner = await this.findByKey(user.id, idempotencyKey);
-      if (winner) return winner;
+      if (winner) return this.withPayment(winner, user.email);
       throw error;
     }
     const order = await this.get(user.id, orderId);
     await this.queueCreatedEmail(user.email, order);
-    return order;
+    return this.withPayment(order, user.email);
+  }
+
+  // A failed gateway call answers 502; retrying with the same key creates the payment then.
+  private async withPayment(order: Order, email: string): Promise<Order> {
+    if (order.status !== 'pending_payment' || order.paymentUrl) return order;
+    return { ...order, paymentUrl: await this.payments.start(order, email) };
   }
 
   // shortcut: every Order in one response; add paging when Customers have many Orders.

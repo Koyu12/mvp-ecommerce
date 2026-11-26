@@ -32,6 +32,11 @@ export default function OrderPage() {
           <p>
             Status: {order.status} · placed {new Date(order.createdAt).toLocaleString('id-ID')}
           </p>
+          {order.status === 'pending_payment' && order.paymentUrl && (
+            <p>
+              <a href={order.paymentUrl}>Pay now</a>
+            </p>
+          )}
           <ul>
             {order.items.map((i) => (
               <li key={`${i.variantId}-${i.sku}`}>

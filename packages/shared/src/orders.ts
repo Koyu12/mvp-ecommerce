@@ -33,6 +33,8 @@ export type Order = OrderSummary & {
   shippingFee: number;
   // The Address copied at checkout.
   address: Omit<Address, 'id'>;
+  // The payment page; "pay now" while the Order is pending_payment. Null until the payment is created.
+  paymentUrl: string | null;
 };
 
 // Why checkout refused a Cart line: not enough Stock, or no longer sold.

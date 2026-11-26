@@ -238,6 +238,8 @@ model Order {
   city           String
   region         String
   postalCode     String
+  // The Midtrans Snap payment page, set once when the payment is created; "pay now" reuses it.
+  paymentUrl     String?
   items          OrderItem[]
   // From the injected Clock, so the payment deadline and expiry can be tested.
   createdAt      DateTime
