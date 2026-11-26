@@ -1,55 +1,38 @@
-import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { type Address, AddressInput, AddressUpdate } from '@mvp/shared';
 import { parseBody } from '../common/parse-body';
-import { PrismaService } from '../infra/prisma.service';
 import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
+import { AddressesService } from './addresses.service';
 
-// The Address columns a Customer sees, taken from the shared schema so the two can't drift apart.
-const ADDRESS_FIELDS = Object.fromEntries(['id', ...Object.keys(AddressInput.shape)].map((k) => [k, true])) as Record<
-  keyof Address,
-  true
->;
-
-// The signed-in Customer's address book. Every lookup is scoped to their userId, so another
-// Customer's Address answers 404 exactly like one that doesn't exist.
+// The signed-in Customer's address book; AddressesService scopes every lookup to them.
 @Controller('addresses')
 @UseGuards(SessionGuard)
 export class AddressesController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly addresses: AddressesService) {}
 
   @Get()
   list(@CurrentUser() user: SessionUser): Promise<Address[]> {
-    return this.prisma.address.findMany({
-      where: { userId: user.id },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: ADDRESS_FIELDS,
-    });
+    return this.addresses.list(user.id);
   }
 
   @Post()
   create(@CurrentUser() user: SessionUser, @Body() body: unknown): Promise<Address> {
-    const data = parseBody(AddressInput, body);
-    return this.prisma.address.create({ data: { ...data, userId: user.id }, select: ADDRESS_FIELDS });
+    return this.addresses.create(user.id, parseBody(AddressInput, body));
   }
 
   @Get(':id')
-  async get(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Address> {
-    const address = await this.prisma.address.findFirst({ where: { id, userId: user.id }, select: ADDRESS_FIELDS });
-    if (!address) throw new NotFoundException();
-    return address;
+  get(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Address> {
+    return this.addresses.get(user.id, id);
   }
 
   @Patch(':id')
-  async update(@CurrentUser() user: SessionUser, @Param('id') id: string, @Body() body: unknown): Promise<Address> {
-    const data = parseBody(AddressUpdate, body);
-    await this.get(user, id); // 404 unless it is this Customer's; userId is never updated, so it stays theirs
-    return this.prisma.address.update({ where: { id }, data, select: ADDRESS_FIELDS });
+  update(@CurrentUser() user: SessionUser, @Param('id') id: string, @Body() body: unknown): Promise<Address> {
+    return this.addresses.update(user.id, id, parseBody(AddressUpdate, body));
   }
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<void> {
-    const { count } = await this.prisma.address.deleteMany({ where: { id, userId: user.id } });
-    if (!count) throw new NotFoundException();
+  remove(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<void> {
+    return this.addresses.remove(user.id, id);
   }
 }

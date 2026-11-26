@@ -1,17 +1,15 @@
 import { BullModule } from '@nestjs/bullmq';
 import { INestApplication, Module } from '@nestjs/common';
 import { toNodeHandler } from 'better-auth/node';
-import { AddressesController } from './account/addresses.controller';
-import { ProfileController } from './account/profile.controller';
+import { AccountModule } from './account/account.module';
 import { Auth, AUTH } from './auth/auth';
 import { AuthModule } from './auth/auth.module';
 import { CartController } from './cart/cart.controller';
 import { CATALOG_CONTROLLERS } from './catalog/catalog';
 import { EmailModule } from './email/email.module';
-import { HealthController } from './health/health.controller';
+import { HealthModule } from './health/health.module';
 import { InfraModule } from './infra/infra.module';
-import { Presigner, S3Presigner } from './media/presigner';
-import { UploadsController } from './media/uploads.controller';
+import { MediaModule } from './media/media.module';
 import { SettingsController } from './settings/settings.controller';
 
 @Module({
@@ -27,10 +25,12 @@ import { SettingsController } from './settings/settings.controller';
     InfraModule,
     EmailModule,
     AuthModule,
+    HealthModule,
+    AccountModule,
+    MediaModule,
   ],
-  // shortcut: health, account, media, catalog, cart and settings are still registered here directly, converted to feature modules in wave 2.
-  controllers: [HealthController, ProfileController, AddressesController, SettingsController, UploadsController, ...CATALOG_CONTROLLERS, CartController],
-  providers: [{ provide: Presigner, useClass: S3Presigner }],
+  // shortcut: catalog, cart and settings are still registered here directly, converted to feature modules in wave 2.
+  controllers: [SettingsController, ...CATALOG_CONTROLLERS, CartController],
 })
 export class AppModule {}
 
