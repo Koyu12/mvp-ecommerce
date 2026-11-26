@@ -19,6 +19,14 @@ export default function OrderPage() {
     });
   }, [id]);
 
+  // The API answers 409 with the reason when the Order was paid meanwhile.
+  const cancel = async () => {
+    if (!confirm('Cancel this order?')) return;
+    const r = await api<Order>(`/orders/${id}/cancel`, 'POST');
+    if (r.data) setOrder(r.data);
+    setError(r.error ? (r.error.message ?? 'Could not cancel the order.') : null);
+  };
+
   const a = order?.address;
   return (
     <main>
@@ -32,9 +40,12 @@ export default function OrderPage() {
           <p>
             Status: {order.status} · placed {new Date(order.createdAt).toLocaleString('id-ID')}
           </p>
-          {order.status === 'pending_payment' && order.paymentUrl && (
+          {order.status === 'pending_payment' && (
             <p>
-              <a href={order.paymentUrl}>Pay now</a>
+              {order.paymentUrl && <a href={order.paymentUrl}>Pay now</a>}{' '}
+              <button type="button" onClick={() => void cancel()}>
+                Cancel order
+              </button>
             </p>
           )}
           <ul>

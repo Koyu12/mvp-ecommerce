@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { formatOrderNumber, orderTotal } from '@mvp/shared';
+import { formatOrderNumber, orderTotal, PAYMENT_WINDOW_MS } from '@mvp/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/infra/prisma.service';
+import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
@@ -233,5 +234,57 @@ describe('Checkout and Orders', () => {
     await guest.get('/api/orders').expect(401);
     await guest.get(`/api/orders/${older.id}`).expect(401);
     await guest.post('/api/orders').set('Idempotency-Key', randomUUID()).send({ addressId: ann.address.id }).expect(401);
+  });
+
+  it('lets a Customer cancel their pending Order, returning Stock once however often they repeat it', async () => {
+    const c = await customer();
+    const tee = await variant({ stock: 10 });
+    await c.addToCart(tee.id, 3);
+    const { body: order } = await c.checkout().expect(201);
+    expect(await stockOf(tee.id)).toBe(7);
+
+    // A double click sends two at once.
+    const [first, second] = await Promise.all([1, 2].map(() => c.a.post(`/api/orders/${order.id}/cancel`).expect(200)));
+    expect(first!.body.status).toBe('cancelled');
+    expect(second!.body.status).toBe('cancelled');
+    await c.a.post(`/api/orders/${order.id}/cancel`).expect(200);
+    expect(await stockOf(tee.id)).toBe(10);
+    // Midtrans is told, so the payment page can't be paid later.
+    expect(t.payments.expired).toContain(order.number);
+    await vi.waitFor(() => expect(c.mails().filter((m) => String(m.subject).endsWith('cancelled'))).toHaveLength(1), { timeout: 15_000 });
+
+    // The expiry job finds nothing to do with it.
+    t.clock.advance(PAYMENT_WINDOW_MS + 60_000);
+    await t.app.get(OrderExpiryProcessor).sweep();
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('cancelled');
+    expect(await stockOf(tee.id)).toBe(10);
+  });
+
+  it("refuses to cancel a paid Order, and another Customer's Order is not found", async () => {
+    const c = await customer();
+    const other = await customer();
+    const tee = await variant({ stock: 10 });
+    await c.addToCart(tee.id, 2);
+    const { body: order } = await c.checkout().expect(201);
+    await other.a.post(`/api/orders/${order.id}/cancel`).expect(404);
+    await prisma.order.update({ where: { id: order.id }, data: { status: 'paid' } });
+
+    await c.a.post(`/api/orders/${order.id}/cancel`).expect(409).expect((r) => expect(r.body.message).toMatch(/contact the Store/));
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('paid');
+    expect(await stockOf(tee.id)).toBe(8);
+  });
+
+  it('releases Stock once when a Customer cancels as the expiry job runs', async () => {
+    const c = await customer();
+    const tee = await variant({ stock: 10 });
+    await c.addToCart(tee.id, 4);
+    const { body: order } = await c.checkout().expect(201);
+    t.clock.advance(PAYMENT_WINDOW_MS + 60_000);
+    const [cancel] = await Promise.all([c.a.post(`/api/orders/${order.id}/cancel`), t.app.get(OrderExpiryProcessor).sweep()]);
+    const { status } = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    // Whichever moved first wins; the loser changes nothing.
+    expect(cancel!.status).toBe(status === 'cancelled' ? 200 : 409);
+    expect(['cancelled', 'expired']).toContain(status);
+    expect(await stockOf(tee.id)).toBe(10);
   });
 });
