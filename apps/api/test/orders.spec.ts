@@ -4,8 +4,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedAdmin } from '../src/auth/seed';
 import { PrismaService } from '../src/infra/prisma.service';
-import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
-import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion.processor';
+import { OrderExpiryProcessor } from '../src/jobs/order-expiry.processor';
 import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
 

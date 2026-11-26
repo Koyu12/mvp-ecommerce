@@ -6,12 +6,14 @@ import { OptionTypesController } from './option-types.controller';
 import { OptionTypesService } from './option-types.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
+import { StockService } from './stock.service';
 import { StorefrontController } from './storefront.controller';
 import { StorefrontService } from './storefront.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [CategoriesController, OptionTypesController, ProductsController, StorefrontController],
-  providers: [CategoriesService, OptionTypesService, ProductsService, StorefrontService],
+  providers: [CategoriesService, OptionTypesService, ProductsService, StorefrontService, StockService],
+  exports: [StockService],
 })
 export class CatalogModule {}

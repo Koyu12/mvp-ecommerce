@@ -50,8 +50,8 @@ export async function seedE2e(prisma: PrismaClient) {
   });
 }
 
-// `pnpm --filter @mvp/api seed:e2e` after a build, with DATABASE_URL pointing at the stack's database.
-if (require.main === module) {
+// `pnpm --filter @mvp/api seed:e2e` (Node runs this TypeScript directly), with DATABASE_URL pointing at the stack's database.
+if (import.meta.main) {
   const prisma = new PrismaClient();
   seedE2e(prisma)
     .then((user) => console.log(`E2E Customer ready: ${user.email}`))

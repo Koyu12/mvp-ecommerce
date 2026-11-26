@@ -3,8 +3,8 @@ import { PAYMENT_WINDOW_MS } from '@mvp/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/infra/prisma.service';
-import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
-import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion.processor';
+import { OrderExpiryProcessor } from '../src/jobs/order-expiry.processor';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
