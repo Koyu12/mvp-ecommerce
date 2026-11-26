@@ -4,13 +4,13 @@ import { toNodeHandler } from 'better-auth/node';
 import { AccountModule } from './account/account.module';
 import { Auth, AUTH } from './auth/auth';
 import { AuthModule } from './auth/auth.module';
-import { CartController } from './cart/cart.controller';
-import { CATALOG_CONTROLLERS } from './catalog/catalog';
+import { CartModule } from './cart/cart.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
 import { InfraModule } from './infra/infra.module';
 import { MediaModule } from './media/media.module';
-import { SettingsController } from './settings/settings.controller';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -28,9 +28,10 @@ import { SettingsController } from './settings/settings.controller';
     HealthModule,
     AccountModule,
     MediaModule,
+    SettingsModule,
+    CatalogModule,
+    CartModule,
   ],
-  // shortcut: catalog, cart and settings are still registered here directly, converted to feature modules in wave 2.
-  controllers: [SettingsController, ...CATALOG_CONTROLLERS, CartController],
 })
 export class AppModule {}
 
