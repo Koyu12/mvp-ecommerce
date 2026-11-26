@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PrismaService } from '../src/prisma.service';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
@@ -117,7 +118,17 @@ describe('email/password accounts', () => {
 
     await c.post('/change-password', { currentPassword: PASSWORD, newPassword: 'another-new-password' }).expect(200);
 
+    await c.post('/sign-in/email', { email, password: PASSWORD }).expect(401);
     await c.post('/sign-in/email', { email, password: 'another-new-password' }).expect(200);
+  });
+
+  it('refuses email/password login for an Admin, who signs in with Google only (ADR 0004)', async () => {
+    const { c, email } = await verifiedCustomer();
+    // No API makes Admins yet, so promote the account directly.
+    await t.app.get(PrismaService).user.update({ where: { email }, data: { role: 'admin' } });
+
+    const res = await c.post('/sign-in/email', { email, password: PASSWORD }).expect(401);
+    expect(res.body.code).toBe('INVALID_EMAIL_OR_PASSWORD');
   });
 
   it('refuses change password without a session', async () => {
@@ -133,9 +144,9 @@ describe('email/password accounts', () => {
     };
 
     it.each([
-      ['login', '/sign-in/email', () => ({ email: 'nobody@example.com', password: PASSWORD })],
+      ['login', '/sign-in/email', () => ({ email: newEmail(), password: PASSWORD })],
       ['signup', '/sign-up/email', () => ({ name: 'Spam', email: newEmail(), password: PASSWORD })],
-      ['password reset request', '/request-password-reset', () => ({ email: 'nobody@example.com' })],
+      ['password reset request', '/request-password-reset', () => ({ email: newEmail() })],
       ['password reset', '/reset-password', () => ({ token: 'bogus', newPassword: 'whatever-123' })],
     ])('returns 429 on %s past the limit', async (_name, path, body) => {
       const statuses = await hammer(path, body);
@@ -145,10 +156,26 @@ describe('email/password accounts', () => {
     });
 
     it('limits each client IP separately', async () => {
-      await hammer('/sign-in/email', () => ({ email: 'nobody@example.com', password: PASSWORD }));
+      await hammer('/sign-in/email', () => ({ email: newEmail(), password: PASSWORD }));
 
-      const res = await client().post('/sign-in/email', { email: 'nobody@example.com', password: PASSWORD });
+      const res = await client().post('/sign-in/email', { email: newEmail(), password: PASSWORD });
       expect(res.status).toBe(401);
+    });
+
+    // A spoofed X-Forwarded-For gets a fresh IP limit on every request; the per-email limit still holds.
+    it.each([
+      ['login', '/sign-in/email', (email: string) => ({ email, password: 'wrong-password' })],
+      ['password reset request', '/request-password-reset', (email: string) => ({ email })],
+    ])('limits %s per email whatever the client IP, until the window passes', async (_name, path, body) => {
+      const email = newEmail();
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i++) statuses.push((await client().post(path, body(email))).status);
+
+      expect(statuses.slice(0, 3)).not.toContain(429);
+      expect(statuses.at(-1)).toBe(429);
+
+      t.clock.advance(15 * 60 * 1000);
+      expect((await client().post(path, body(email))).status).not.toBe(429);
     });
   });
 });

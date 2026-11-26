@@ -30,7 +30,7 @@ import { RedisService } from './redis.service';
     MailService,
     EmailQueue,
     EmailProcessor,
-    { provide: AUTH, useFactory: createAuth, inject: [PrismaService, EmailQueue] },
+    { provide: AUTH, useFactory: createAuth, inject: [PrismaService, EmailQueue, Clock] },
     { provide: Clock, useClass: SystemClock },
     { provide: MAIL_TRANSPORT, useValue: process.env.SMTP_URL ?? 'smtp://localhost:1025' },
   ],
