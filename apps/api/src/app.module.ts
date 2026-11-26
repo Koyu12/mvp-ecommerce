@@ -5,14 +5,14 @@ import { AddressesController } from './account/addresses.controller';
 import { ProfileController } from './account/profile.controller';
 import { Auth, AUTH } from './auth/auth';
 import { AuthModule } from './auth/auth.module';
-import { CartController } from './cart/cart.controller';
-import { CATALOG_CONTROLLERS } from './catalog/catalog';
+import { CartModule } from './cart/cart.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { EmailModule } from './email/email.module';
 import { HealthController } from './health/health.controller';
 import { InfraModule } from './infra/infra.module';
 import { Presigner, S3Presigner } from './media/presigner';
 import { UploadsController } from './media/uploads.controller';
-import { SettingsController } from './settings/settings.controller';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -27,9 +27,12 @@ import { SettingsController } from './settings/settings.controller';
     InfraModule,
     EmailModule,
     AuthModule,
+    SettingsModule,
+    CatalogModule,
+    CartModule,
   ],
-  // shortcut: health, account, media, catalog, cart and settings are still registered here directly, converted to feature modules in wave 2.
-  controllers: [HealthController, ProfileController, AddressesController, SettingsController, UploadsController, ...CATALOG_CONTROLLERS, CartController],
+  // shortcut: health, account and media are still registered here directly, converted to feature modules in wave 2.
+  controllers: [HealthController, ProfileController, AddressesController, UploadsController],
   providers: [{ provide: Presigner, useClass: S3Presigner }],
 })
 export class AppModule {}
