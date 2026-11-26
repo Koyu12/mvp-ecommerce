@@ -48,6 +48,11 @@ export default function OrderPage() {
               </button>
             </p>
           )}
+          {order.shipment && (
+            <p>
+              Shipped with {order.shipment.courier} · tracking number {order.shipment.trackingNumber}
+            </p>
+          )}
           <ul>
             {order.items.map((i) => (
               <li key={`${i.variantId}-${i.sku}`}>
