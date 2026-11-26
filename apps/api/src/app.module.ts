@@ -1,12 +1,14 @@
 import { BullModule } from '@nestjs/bullmq';
 import { INestApplication, Module } from '@nestjs/common';
 import { toNodeHandler } from 'better-auth/node';
+import { AddressesController } from './addresses.controller';
 import { Auth, AUTH, createAuth } from './auth';
 import { Clock, SystemClock } from './clock';
 import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email.queue';
 import { HealthController } from './health.controller';
 import { MAIL_TRANSPORT, MailService } from './mail';
 import { PrismaService } from './prisma.service';
+import { ProfileController } from './profile.controller';
 import { RedisService } from './redis.service';
 
 @Module({
@@ -23,7 +25,7 @@ import { RedisService } from './redis.service';
       defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true },
     }),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, ProfileController, AddressesController],
   providers: [
     PrismaService,
     RedisService,
