@@ -7,7 +7,6 @@ COMMAND=$(printf '%s' "$INPUT" | node -e 'let s="";process.stdin.on("data",d=>s+
 
 DANGEROUS_PATTERNS=(
   'git[[:space:]]+push.*[[:space:]](--force|--force-with-lease|-f)([[:space:]=]|$)'  # force push
-  'git[[:space:]]+push.*[[:space:]+:](main|master)([[:space:]]|$)'                     # push to main
   'git[[:space:]]+reset[[:space:]].*--hard'
   'git[[:space:]]+clean[[:space:]]+(-[[:alnum:]]*f|--force)'
   'git[[:space:]]+branch[[:space:]].*-D'
