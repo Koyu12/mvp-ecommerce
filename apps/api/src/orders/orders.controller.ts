@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { CheckoutInput, IdempotencyKey, type Order, type OrderSummary } from '@mvp/shared';
 import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
 import { parseBody } from '../common/parse-body';
@@ -25,5 +25,11 @@ export class OrdersController {
   @Get(':id')
   get(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Order> {
     return this.orders.get(user.id, id);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  cancel(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Order> {
+    return this.orders.cancel(user.id, id);
   }
 }

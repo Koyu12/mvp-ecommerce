@@ -55,9 +55,14 @@ export class PaymentsService {
   // late `pending`s and a `settlement` after a card `capture` change nothing and queue no email.
   async notify(n: MidtransNotification): Promise<void> {
     if (!isValidSignature(n, process.env.MIDTRANS_SERVER_KEY ?? '')) throw new UnauthorizedException('Invalid signature');
-    if (!isPaidStatus(n)) return;
+    if (isPaidStatus(n)) await this.markPaid(n.order_id, Number(n.gross_amount));
+  }
+
+  // Pays a pending Order whose total matches the amount Midtrans received, and queues the paid emails once.
+  // Shared by the notification route and the expiry job; a no-op for an Order already paid, expired or cancelled.
+  async markPaid(orderNumber: string, amount: number): Promise<void> {
     const [order] = await this.prisma.order.updateManyAndReturn({
-      where: { number: n.order_id, status: 'pending_payment', total: Number(n.gross_amount) },
+      where: { number: orderNumber, status: 'pending_payment', total: amount },
       data: { status: 'paid' },
       select: { id: true, number: true, total: true, user: { select: { email: true } } },
     });

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Snap } from 'midtrans-client';
-import { PaymentGateway, type PaymentRequest } from './payment-gateway';
+import { MidtransError, Snap } from 'midtrans-client';
+import { PaymentGateway, type PaymentRequest, type PaymentStatus } from './payment-gateway';
 
 // Midtrans wants WIB (UTC+7) wall-clock time with an explicit offset.
 const toMidtransTime = (d: Date) => `${new Date(d.getTime() + 7 * 3600_000).toISOString().slice(0, 19).replace('T', ' ')} +0700`;
@@ -26,6 +26,21 @@ export class MidtransGateway extends PaymentGateway {
 
   async createPayment(request: PaymentRequest): Promise<string> {
     return (await this.snap.createTransaction(snapTransaction(request))).redirect_url;
+  }
+
+  // Snap answers 404 until the Customer picks a payment method.
+  async getStatus(orderNumber: string): Promise<PaymentStatus | null> {
+    try {
+      const { transaction_status, fraud_status, gross_amount } = await this.snap.transaction.status(orderNumber);
+      return { transaction_status, fraud_status, gross_amount };
+    } catch (error) {
+      if (error instanceof MidtransError && Number(error.httpStatusCode) === 404) return null;
+      throw error;
+    }
+  }
+
+  async expire(orderNumber: string): Promise<void> {
+    await this.snap.transaction.expire(orderNumber);
   }
 }
 
