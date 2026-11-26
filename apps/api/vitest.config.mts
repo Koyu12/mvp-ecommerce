@@ -8,6 +8,8 @@ export default defineConfig({
     include: ['test/**/*.spec.ts'],
     globalSetup: ['test/global-setup.ts'],
     setupFiles: ['test/setup-env.ts'],
+    // All files share one database (global-setup), so parallel files race on shared rows like store settings.
+    fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 120_000,
   },
