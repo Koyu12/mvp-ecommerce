@@ -2,13 +2,18 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { authClient } from '../../lib/auth-client';
 import { useSubmit } from '../../lib/use-submit';
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const session = authClient.useSession();
+  // Already logged in: nothing to do here.
+  useEffect(() => {
+    if (session.data) router.replace('/');
+  }, [session.data, router]);
   const { onSubmit, error, pending } = useSubmit(async (form) => {
     const email = String(form.get('email'));
     const result = await authClient.signIn.email({ email, password: String(form.get('password')) });

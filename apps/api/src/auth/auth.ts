@@ -4,9 +4,9 @@ import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { admin } from 'better-auth/plugins';
 import { createAccessControl } from 'better-auth/plugins/access';
 import { ADMIN, isAdmin, normaliseEmail } from '@mvp/shared';
-import { Clock } from './clock';
-import { EmailQueue } from './email.queue';
-import { PrismaService } from './prisma.service';
+import { Clock } from '../infra/clock';
+import { EmailQueue } from '../email/email.queue';
+import { PrismaService } from '../infra/prisma.service';
 
 export const AUTH = Symbol('AUTH');
 

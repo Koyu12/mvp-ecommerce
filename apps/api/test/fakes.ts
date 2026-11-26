@@ -1,6 +1,7 @@
 import type { SentMessageInfo, Transport } from 'nodemailer';
-import { Clock } from '../src/clock';
-import type { MailInput } from '../src/mail';
+import { Clock } from '../src/infra/clock';
+import type { MailInput } from '../src/email/mail';
+import { Presigner, type PresignRequest } from '../src/media/presigner';
 
 type MailMessage = Parameters<Transport['send']>[0];
 
@@ -69,5 +70,15 @@ export class FakeGoogle {
       const idToken = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.sig`;
       return Response.json({ access_token: 'fake-access', id_token: idToken, token_type: 'Bearer', expires_in: 3600 });
     };
+  }
+}
+
+// Signs nothing: records each request and returns a recognisable upload URL.
+export class FakePresigner extends Presigner {
+  signed: PresignRequest[] = [];
+
+  async presignPut(request: PresignRequest): Promise<string> {
+    this.signed.push(request);
+    return `https://storage.test/upload/${request.key}`;
   }
 }

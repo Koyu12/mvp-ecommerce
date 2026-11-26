@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { type Profile, ProfileUpdate } from '@mvp/shared';
-import { parseBody } from './parse-body';
-import { PrismaService } from './prisma.service';
-import { CurrentUser, SessionGuard, type SessionUser } from './session.guard';
+import { parseBody } from '../common/parse-body';
+import { PrismaService } from '../infra/prisma.service';
+import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
 
 const PROFILE_FIELDS = { name: true, email: true, phone: true } as const;
 
