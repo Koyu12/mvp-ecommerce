@@ -88,6 +88,10 @@ _Avoid_: Lock, allocation
 A delivery location saved in a Customer's address book. The Address chosen at checkout is copied onto the Order.
 _Avoid_: Location, shipping details
 
+**Province**:
+The Indonesian province of an Address, such as Jawa Barat. In code the field is `region`.
+_Avoid_: State, region (in UI copy)
+
 **Shipping fee**:
 The flat amount added to every Order for delivery, set by the Admin. Each Order keeps the fee it was charged.
 _Avoid_: Delivery charge, postage

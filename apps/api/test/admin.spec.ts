@@ -97,6 +97,43 @@ describe('Admins', () => {
     expect(viaGoogle).toMatchObject({ id: user.id, role: 'admin' });
   });
 
+  it('signs a Customer out everywhere when promoted, so a password session never becomes an Admin session', async () => {
+    const { c: admin } = await signInAdmin();
+    const { c: promoted, user } = await signUpCustomer();
+
+    await admin.post('/admin/set-role', { userId: user.id, role: 'admin' }).expect(200);
+
+    await promoted.get('/api/auth/admin/list-users').expect(401);
+    expect((await promoted.get('/api/auth/get-session').expect(200)).body).toBeNull();
+  });
+
+  it('signs a Customer out everywhere when the seed makes them Admin', async () => {
+    const { c: promoted, email } = await signUpCustomer();
+
+    await seedAdmin(prisma, email);
+
+    await promoted.get('/api/auth/admin/list-users').expect(401);
+  });
+
+  it('refuses an Admin everything beyond listing and promoting users', async () => {
+    const { c: admin } = await signInAdmin();
+    const { user } = await signUpCustomer();
+
+    for (const [path, body] of [
+      ['/admin/create-user', { email: newEmail(), password: PASSWORD, name: 'X' }],
+      ['/admin/impersonate-user', { userId: user.id }],
+      ['/admin/remove-user', { userId: user.id }],
+      ['/admin/set-user-password', { userId: user.id, newPassword: 'another-long-password' }],
+      ['/admin/update-user', { userId: user.id, data: { emailVerified: false } }],
+      ['/admin/ban-user', { userId: user.id }],
+      ['/admin/revoke-user-sessions', { userId: user.id }],
+    ] as const) {
+      const res = await admin.post(path, body);
+      expect(res.status, path).toBe(403);
+    }
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).toMatchObject({ emailVerified: true, banned: false });
+  });
+
   it('refuses password sign-in for a seeded Admin, even with a password set by reset', async () => {
     const { email } = await signInAdmin();
     await client().post('/request-password-reset', { email, redirectTo: '/reset-password' }).expect(200);
