@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/prisma.service';
+import { seedAdmin } from '../src/seed';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
@@ -124,8 +125,7 @@ describe('email/password accounts', () => {
 
   it('refuses email/password login for an Admin, who signs in with Google only (ADR 0004)', async () => {
     const { c, email } = await verifiedCustomer();
-    // No API makes Admins yet, so promote the account directly.
-    await t.app.get(PrismaService).user.update({ where: { email }, data: { role: 'admin' } });
+    await seedAdmin(t.app.get(PrismaService), email);
 
     const res = await c.post('/sign-in/email', { email, password: PASSWORD }).expect(401);
     expect(res.body.code).toBe('INVALID_EMAIL_OR_PASSWORD');
