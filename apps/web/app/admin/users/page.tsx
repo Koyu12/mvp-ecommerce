@@ -1,14 +1,14 @@
 'use client';
 
+import { ADMIN, isAdmin } from '@mvp/shared';
+import type { UserWithRole } from 'better-auth/plugins/admin';
 import { useCallback, useEffect, useState } from 'react';
 import { authClient } from '../../../lib/auth-client';
 
-type User = { id: string; name: string; email: string; role?: string | null };
-
 export default function AdminUsersPage() {
   const session = authClient.useSession();
-  const isAdmin = session.data?.user.role === 'admin';
-  const [users, setUsers] = useState<User[]>([]);
+  const signedInAsAdmin = isAdmin(session.data?.user);
+  const [users, setUsers] = useState<UserWithRole[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -19,19 +19,19 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => {
-    if (isAdmin) void load();
-  }, [isAdmin, load]);
+    if (signedInAsAdmin) void load();
+  }, [signedInAsAdmin, load]);
 
-  const promote = async (user: User) => {
+  const promote = async (user: UserWithRole) => {
     if (!confirm(`Make ${user.email} an Admin? From then on they can only sign in with Google.`)) return;
-    const result = await authClient.admin.setRole({ userId: user.id, role: 'admin' });
+    const result = await authClient.admin.setRole({ userId: user.id, role: ADMIN });
     if (result.error) setError(result.error.message ?? 'Could not promote the user.');
     else await load();
   };
 
   if (session.isPending) return <main />;
   // The API refuses /admin/* to everyone else; this only keeps the page out of sight.
-  if (!isAdmin) {
+  if (!signedInAsAdmin) {
     return (
       <main>
         <h1>Page not found</h1>
@@ -61,7 +61,7 @@ export default function AdminUsersPage() {
               <td>{user.email}</td>
               <td>{user.role}</td>
               <td>
-                {user.role !== 'admin' && (
+                {!isAdmin(user) && (
                   <button type="button" onClick={() => promote(user)}>
                     Make Admin
                   </button>

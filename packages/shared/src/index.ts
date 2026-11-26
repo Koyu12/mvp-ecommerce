@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 const DependencyStatus = z.enum(['up', 'down']);
 
+export const ADMIN = 'admin';
+export type Role = 'customer' | typeof ADMIN;
+// Better Auth stores several roles as a comma-separated list.
+export const isAdmin = (user: { role?: unknown } | null | undefined) =>
+  typeof user?.role === 'string' && user.role.split(',').includes(ADMIN);
+
+// The one form an email is looked up and stored in.
+export const normaliseEmail = (email: string) => email.trim().toLowerCase();
+
 export const HealthResponse = z.object({
   status: z.enum(['ok', 'degraded']),
   database: DependencyStatus,
@@ -38,14 +47,5 @@ export const AddressInput = z.object({
 export type AddressInput = z.input<typeof AddressInput>;
 export const AddressUpdate = AddressInput.partial();
 
-export const Address = z.object({
-  id: z.string(),
-  recipientName: z.string(),
-  phone: z.string(),
-  line1: z.string(),
-  line2: z.string().nullable(),
-  city: z.string(),
-  region: z.string(),
-  postalCode: z.string(),
-});
-export type Address = z.infer<typeof Address>;
+// A saved Address: the parsed input fields, every one present (line2 may be null), plus its id.
+export type Address = { id: string } & Required<z.output<typeof AddressInput>>;

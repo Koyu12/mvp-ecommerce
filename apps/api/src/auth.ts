@@ -2,12 +2,17 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { admin } from 'better-auth/plugins';
-import { adminAc, userAc } from 'better-auth/plugins/admin/access';
+import { createAccessControl } from 'better-auth/plugins/access';
+import { ADMIN, isAdmin, normaliseEmail } from '@mvp/shared';
 import { Clock } from './clock';
 import { EmailQueue } from './email.queue';
 import { PrismaService } from './prisma.service';
 
 export const AUTH = Symbol('AUTH');
+
+// Admins may only list users and promote them (spec #1); every other /admin/* route answers 403.
+const ac = createAccessControl({ user: ['list', 'set-role'] } as const);
+const roles = { admin: ac.newRole({ user: ['list', 'set-role'] }), customer: ac.newRole({ user: [] }) };
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
@@ -39,8 +44,8 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
     database: prismaAdapter(prisma, { provider: 'postgresql' }),
     plugins: [
-      // Adds `role` and the /admin/* routes (list-users, set-role, ...), open to Admins only.
-      admin({ roles: { admin: adminAc, customer: userAc }, defaultRole: 'customer', adminRoles: ['admin'] }),
+      // Adds `role` and the /admin/* routes, open to Admins only and limited by `roles` above.
+      admin({ ac, roles, defaultRole: 'customer', adminRoles: [ADMIN] }),
     ],
     emailAndPassword: {
       enabled: true,
@@ -52,13 +57,13 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
       before: createAuthMiddleware(async (ctx) => {
         const email: unknown = ctx.body?.email;
         if (typeof email !== 'string') return;
-        const key = email.trim().toLowerCase();
+        const key = normaliseEmail(email);
 
         if (ctx.path === '/sign-in/email') {
           if (!loginPerEmail(key)) throw new APIError('TOO_MANY_REQUESTS', { message: 'Too many login attempts' });
           // Admins sign in with Google only (ADR 0004); answer as for a wrong password so this doesn't reveal Admin emails.
           const user = await prisma.user.findUnique({ where: { email: key }, select: { role: true } });
-          if (user?.role === 'admin') {
+          if (isAdmin(user)) {
             throw new APIError('UNAUTHORIZED', { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' });
           }
         }
@@ -91,6 +96,17 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
       accountLinking: { requireLocalEmailVerified: false },
     },
     databaseHooks: {
+      user: {
+        update: {
+          // A session made by password sign-in must not become an Admin session (ADR 0004): promotion
+          // signs the user out everywhere, so their next session comes from Google.
+          after: async (user, ctx) => {
+            if (ctx?.path === '/admin/set-role' && isAdmin({ role: user.role })) {
+              await prisma.session.deleteMany({ where: { userId: user.id } });
+            }
+          },
+        },
+      },
       account: {
         create: {
           // Pre-account takeover: a password set on an email nobody verified may belong to someone else,

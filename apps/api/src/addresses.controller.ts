@@ -1,19 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { type Address, AddressInput, AddressUpdate } from '@mvp/shared';
-import { parseBody } from './input';
+import { parseBody } from './parse-body';
 import { PrismaService } from './prisma.service';
 import { CurrentUser, SessionGuard, type SessionUser } from './session.guard';
 
-const SELECT = {
-  id: true,
-  recipientName: true,
-  phone: true,
-  line1: true,
-  line2: true,
-  city: true,
-  region: true,
-  postalCode: true,
-} as const;
+// The Address columns a Customer sees, taken from the shared schema so the two can't drift apart.
+const ADDRESS_FIELDS = Object.fromEntries(['id', ...Object.keys(AddressInput.shape)].map((k) => [k, true])) as Record<
+  keyof Address,
+  true
+>;
 
 // The signed-in Customer's address book. Every lookup is scoped to their userId, so another
 // Customer's Address answers 404 exactly like one that doesn't exist.
@@ -27,19 +22,19 @@ export class AddressesController {
     return this.prisma.address.findMany({
       where: { userId: user.id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: SELECT,
+      select: ADDRESS_FIELDS,
     });
   }
 
   @Post()
   create(@CurrentUser() user: SessionUser, @Body() body: unknown): Promise<Address> {
     const data = parseBody(AddressInput, body);
-    return this.prisma.address.create({ data: { ...data, userId: user.id }, select: SELECT });
+    return this.prisma.address.create({ data: { ...data, userId: user.id }, select: ADDRESS_FIELDS });
   }
 
   @Get(':id')
   async get(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Address> {
-    const address = await this.prisma.address.findFirst({ where: { id, userId: user.id }, select: SELECT });
+    const address = await this.prisma.address.findFirst({ where: { id, userId: user.id }, select: ADDRESS_FIELDS });
     if (!address) throw new NotFoundException();
     return address;
   }
@@ -48,7 +43,7 @@ export class AddressesController {
   async update(@CurrentUser() user: SessionUser, @Param('id') id: string, @Body() body: unknown): Promise<Address> {
     const data = parseBody(AddressUpdate, body);
     await this.get(user, id); // 404 unless it is this Customer's; userId is never updated, so it stays theirs
-    return this.prisma.address.update({ where: { id }, data, select: SELECT });
+    return this.prisma.address.update({ where: { id }, data, select: ADDRESS_FIELDS });
   }
 
   @Delete(':id')
