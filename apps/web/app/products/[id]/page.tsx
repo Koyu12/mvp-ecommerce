@@ -1,15 +1,16 @@
 'use client';
 
-import type { StorefrontProduct, StorefrontVariant } from '@mvp/shared';
+import { LOW_STOCK, type StorefrontProduct, type StorefrontVariant } from '@mvp/shared';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
 import { authClient } from '../../../lib/auth-client';
+import { useSubmit } from '../../../lib/use-submit';
 import { formatIdr } from '../../admin/admin-only';
 
 const stockState = (variant: StorefrontVariant) =>
-  variant.stock === 0 ? 'Out of stock' : variant.stock <= 5 ? `Only ${variant.stock} left` : 'In stock';
+  variant.stock === 0 ? 'Out of stock' : variant.stock <= LOW_STOCK ?`Only ${variant.stock} left` : 'In stock';
 
 function AddToCart({ variant }: { variant: StorefrontVariant | undefined }) {
   const session = authClient.useSession();
@@ -21,8 +22,31 @@ function AddToCart({ variant }: { variant: StorefrontVariant | undefined }) {
       </p>
     );
   }
-  // shortcut: the Cart arrives in #10, which wires this button up.
-  return <button disabled={!variant || variant.stock === 0}>Add to cart</button>;
+  return <AddToCartForm variant={variant} />;
+}
+
+function AddToCartForm({ variant }: { variant: StorefrontVariant | undefined }) {
+  const [added, setAdded] = useState(false);
+  const { onSubmit, error, pending } = useSubmit(async (form) => {
+    setAdded(false);
+    const result = await api('/cart/items', 'POST', { variantId: variant?.id, quantity: Number(form.get('quantity')) });
+    setAdded(!result.error);
+    return result;
+  });
+  return (
+    <form onSubmit={onSubmit}>
+      <label>
+        Quantity <input name="quantity" type="number" min={1} max={99} defaultValue={1} required />
+      </label>{' '}
+      <button disabled={pending || !variant || variant.stock === 0}>Add to cart</button>
+      {added && (
+        <p role="status">
+          Added. <Link href="/cart">View cart</Link>
+        </p>
+      )}
+      {error && <p role="alert">{error}</p>}
+    </form>
+  );
 }
 
 export default function ProductPage() {

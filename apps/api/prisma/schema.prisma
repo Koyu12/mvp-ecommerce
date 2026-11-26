@@ -29,6 +29,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   addresses     Address[]
+  cartItems     CartItem[]
 
   @@map("user")
 }
@@ -166,6 +167,7 @@ model Variant {
   price        Int?
   archived     Boolean       @default(false)
   optionValues OptionValue[]
+  cartItems    CartItem[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -180,4 +182,21 @@ model StoreSettings {
   updatedAt   DateTime @updatedAt
 
   @@map("store_settings")
+}
+
+// One line of a Customer's Cart; a Customer's lines are their one Cart. No Stock is held.
+model CartItem {
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity   Int
+  // The effective price when last added: only for the price-changed notice, never charged.
+  addedPrice Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@id([userId, variantId])
+  @@index([variantId])
+  @@map("cart_item")
 }
