@@ -37,3 +37,37 @@ export class CapturingMailTransport implements Transport<SentMessageInfo> {
     callback(null, { envelope: mail.message.getEnvelope(), messageId: mail.message.messageId() });
   }
 }
+
+export interface GoogleProfile {
+  sub: string;
+  email: string;
+  name?: string;
+  email_verified?: boolean;
+}
+
+// Stands in for Google's OAuth token endpoint, the only Google call in the code flow:
+// Better Auth reads the user from the id_token it returns (trusted because it came over TLS from Google).
+export class FakeGoogle {
+  private profiles = new Map<string, GoogleProfile>();
+
+  /** Returns the authorization code Google would hand back for this profile. */
+  codeFor(profile: GoogleProfile): string {
+    const code = crypto.randomUUID();
+    this.profiles.set(code, profile);
+    return code;
+  }
+
+  /** A `fetch` that answers Google's token endpoint and passes every other request through. */
+  wrap(realFetch: typeof fetch): typeof fetch {
+    return async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url !== 'https://oauth2.googleapis.com/token') return realFetch(input, init);
+      const profile = this.profiles.get(new URLSearchParams(String(init?.body)).get('code') ?? '');
+      if (!profile) return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+      const claims = { iss: 'https://accounts.google.com', email_verified: true, name: 'Google User', ...profile };
+      const idToken = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.sig`;
+      return Response.json({ access_token: 'fake-access', id_token: idToken, token_type: 'Bearer', expires_in: 3600 });
+    };
+  }
+}

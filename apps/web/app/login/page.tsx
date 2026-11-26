@@ -22,9 +22,18 @@ function LoginForm() {
     <main>
       <h1>Log in</h1>
       {params.get('verified') && !params.get('error') && <p role="status">Email verified. You can log in now.</p>}
-      {params.get('error') && (
-        <p role="alert">That verification link is invalid or has expired. Log in to get a new one.</p>
-      )}
+      {params.get('error') &&
+        (params.get('google') ? (
+          <p role="alert">Google sign-in failed. Please try again.</p>
+        ) : (
+          <p role="alert">That verification link is invalid or has expired. Log in to get a new one.</p>
+        ))}
+      <button
+        type="button"
+        onClick={() => authClient.signIn.social({ provider: 'google', callbackURL: '/', errorCallbackURL: '/login?google=1' })}
+      >
+        Sign in with Google
+      </button>
       <form onSubmit={onSubmit}>
         <label>
           Email <input name="email" type="email" autoComplete="email" required />

@@ -84,6 +84,30 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
         '/reset-password': { window: 60, max: 5 },
       },
     },
+    account: {
+      // Better Auth's default refuses to link Google to an unverified password account (see
+      // docs/notes/4-google-linking.md). We link instead, and the hook below drops that password.
+      accountLinking: { requireLocalEmailVerified: false },
+    },
+    databaseHooks: {
+      account: {
+        create: {
+          // Pre-account takeover: a password set on an email nobody verified may belong to someone else,
+          // so it stops working once the real owner proves the email through Google. Runs before
+          // Better Auth marks the user verified, so `emailVerified: false` still identifies that case.
+          after: async (account) => {
+            if (account.providerId === 'credential') return;
+            await prisma.account.deleteMany({
+              where: { userId: account.userId, providerId: 'credential', user: { emailVerified: false } },
+            });
+          },
+        },
+      },
+    },
+    socialProviders: {
+      // Google reports email_verified, so a new user arrives verified and links by email to an existing one.
+      google: { clientId: process.env.GOOGLE_CLIENT_ID ?? '', clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '' },
+    },
     emailVerification: {
       sendOnSignUp: true,
       sendVerificationEmail: ({ user, url }) =>

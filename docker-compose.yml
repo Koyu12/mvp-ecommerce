@@ -41,6 +41,9 @@ services:
       # Local-only secret; set a real one anywhere else.
       BETTER_AUTH_SECRET: local-dev-secret-not-for-production-use
       BETTER_AUTH_URL: http://localhost:3000
+      # From Google Cloud console; set in your shell or a root .env file.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     # No published port: browsers reach the API only through the web app's /api proxy (ADR 0001),
     # so the auth rate limits can't be skipped by calling the API directly.
     expose:
