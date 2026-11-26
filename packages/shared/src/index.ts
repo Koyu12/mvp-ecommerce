@@ -115,3 +115,7 @@ export type AdminProduct = {
   variants: AdminVariant[];
 };
 export type LowStockVariant = AdminVariant & { productName: string };
+
+// Store settings, editable by Admins. The Shipping fee is integer IDR, capped at Postgres' 4-byte int.
+export const StoreSettings = z.object({ shippingFee: z.number().int().min(0).max(2_147_483_647) });
+export type StoreSettings = z.infer<typeof StoreSettings>;

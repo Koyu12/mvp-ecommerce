@@ -1,5 +1,6 @@
 import { Body, ConflictException, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseFilters, UseGuards } from '@nestjs/common';
 import { NameInput, type OptionType, type OptionValue, OptionValueInput } from '@mvp/shared';
+import { Prisma } from '@prisma/client';
 import { AdminGuard } from '../auth/admin.guard';
 import { parseBody } from '../common/parse-body';
 import { PrismaService } from '../infra/prisma.service';
@@ -10,7 +11,7 @@ const TYPE_FIELDS = {
   id: true,
   name: true,
   values: { select: VALUE_FIELDS, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-} as const;
+} satisfies Prisma.OptionTypeSelect;
 
 // Option types (Size, Colour) and their Option values, which Variants pick from.
 @Controller('admin')
