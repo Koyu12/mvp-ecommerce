@@ -5,6 +5,7 @@ import { parseBody } from '../common/parse-body';
 import { PrismaService } from '../infra/prisma.service';
 import { readStoreSettings, SETTINGS_FIELDS, SETTINGS_ID } from './settings';
 
+// Admins read and edit the Store settings, such as the Shipping fee the Cart and checkout read.
 @Controller('admin/settings')
 @UseGuards(AdminGuard)
 export class SettingsController {

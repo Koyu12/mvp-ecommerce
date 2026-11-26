@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedAdmin } from '../src/auth/seed';
 import { PrismaService } from '../src/infra/prisma.service';
+import { S3Presigner } from '../src/media/presigner';
 import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
 
@@ -66,6 +67,12 @@ describe('Image uploads', () => {
       expect(body).toEqual({ uploadUrl: `https://storage.test/upload/${signed.key}`, url: `${PUBLIC_URL}/${signed.key}` });
     });
 
+    it('signs the Content-Type and Content-Length into the real S3 upload URL, so storage refuses any other', async () => {
+      // Signing is local: dummy credentials, no network.
+      const url = new URL(await new S3Presigner().presignPut({ key: 'images/x.png', contentType: 'image/png', size: 1000 }));
+      expect(url.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toEqual(expect.arrayContaining(['content-type', 'content-length']));
+    });
+
     it('refuses upload URLs to Guests with 401 and to Customers with 403', async () => {
       const customer = await signInCustomer();
       const body = { contentType: 'image/png', size: 1000 };
@@ -117,6 +124,16 @@ describe('Image uploads', () => {
       await product([`${PUBLIC_URL}.evil.example/x.png`], 400);
       // Resolves outside the storage path once a browser normalises it.
       await product([`${PUBLIC_URL}/images/../../x.png`], 400);
+      // Only the exact shape an upload URL is issued with: images/<uuid>.<jpg|png|webp>, nothing after it.
+      const issued = await upload();
+      await product([`${issued}?v=1`], 400);
+      await product([`${issued}#x`], 400);
+      await product([issued.replace('.png', '.gif')], 400);
+      await product([issued.replace('.png', 'xpng')], 400);
+      await product([issued.replace('/images/', '/other/')], 400);
+      await product([`${PUBLIC_URL}/images/not-a-uuid.png`], 400);
+      await product([`${PUBLIC_URL}/images/sub/${randomUUID()}.png`], 400);
+      await product([issued], 201);
       const created = await product();
       await admin.patch(`/api/admin/products/${created.id}`).send({ images: ['javascript:alert(1)'] }).expect(400);
     });

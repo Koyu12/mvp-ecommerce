@@ -10,6 +10,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { parseBody } from '../common/parse-body';
 import { PrismaService } from '../infra/prisma.service';
+import { listCategories } from './categories.controller';
 
 const ON_SALE = { archived: false } satisfies Prisma.VariantWhereInput;
 
@@ -21,7 +22,7 @@ export class StorefrontController {
 
   @Get('categories')
   categories(): Promise<Category[]> {
-    return this.prisma.category.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } });
+    return listCategories(this.prisma);
   }
 
   // What the size and colour filters pick from.
@@ -44,7 +45,10 @@ export class StorefrontController {
       const typeOf = new Map(values.map((v) => [v.id, v.optionTypeId]));
       const groups = new Map<string, string[]>();
       // An unknown id is its own group, so it matches nothing rather than being ignored.
-      for (const id of optionValueIds) groups.set(typeOf.get(id) ?? id, [...(groups.get(typeOf.get(id) ?? id) ?? []), id]);
+      for (const id of optionValueIds) {
+        const key = typeOf.get(id) ?? id;
+        groups.set(key, [...(groups.get(key) ?? []), id]);
+      }
       for (const ids of groups.values()) (variant.AND as Prisma.VariantWhereInput[]).push({ optionValues: { some: { id: { in: ids } } } });
     }
     if (minPrice !== undefined || maxPrice !== undefined) {
@@ -66,14 +70,23 @@ export class StorefrontController {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: { id: true, name: true, categoryId: true, price: true, images: true, variants: { where: ON_SALE, select: { price: true, stock: true } } },
+        select: {
+          id: true,
+          name: true,
+          categoryId: true,
+          price: true,
+          images: true,
+          // The "from" price counts only Variants matching the filters; Stock counts every Variant on sale.
+          variants: { where: variant, select: { price: true } },
+          _count: { select: { variants: { where: { ...ON_SALE, stock: { gt: 0 } } } } },
+        },
       }),
     ]);
-    const items = rows.map(({ variants, price, images, ...p }) => ({
+    const items = rows.map(({ variants, _count, price, images, ...p }) => ({
       ...p,
       image: images[0] ?? null,
       fromPrice: Math.min(...variants.map((v) => effectivePrice(v, { price }))),
-      inStock: variants.some((v) => v.stock > 0),
+      inStock: _count.variants > 0,
     }));
     return { items, total, page, pageSize };
   }

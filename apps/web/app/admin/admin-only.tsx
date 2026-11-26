@@ -17,5 +17,3 @@ export function AdminOnly({ children }: { children: ReactNode }) {
   }
   return <main>{children}</main>;
 }
-
-export const formatIdr = (amount: number) => `Rp ${amount.toLocaleString('id-ID')}`;

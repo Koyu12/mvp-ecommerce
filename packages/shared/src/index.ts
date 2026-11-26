@@ -96,7 +96,9 @@ export type VariantUpdate = z.input<typeof VariantUpdate>;
 export const effectivePrice = (variant: { price: number | null }, product: { price: number }) =>
   variant.price ?? product.price;
 
-export const LowStockQuery = z.object({ below: z.coerce.number().pipe(z.int().min(1).max(1_000_000)).default(5) });
+// At or below this Stock, a Variant shows "only N left".
+export const LOW_STOCK = 5;
+export const LowStockQuery = z.object({ below: z.coerce.number().pipe(z.int().min(1).max(1_000_000)).default(LOW_STOCK) });
 
 export type AdminVariant = {
   id: string;
@@ -132,8 +134,8 @@ export const UploadRequest = z.object({
 export type UploadRequest = z.input<typeof UploadRequest>;
 export type UploadTarget = { uploadUrl: string; url: string };
 
-// Store settings, editable by Admins. The Shipping fee is integer IDR, capped at Postgres' 4-byte int.
-export const StoreSettings = z.object({ shippingFee: z.number().int().min(0).max(2_147_483_647) });
+// Store settings, editable by Admins. The Shipping fee is integer IDR.
+export const StoreSettings = z.object({ shippingFee: idr });
 export type StoreSettings = z.infer<typeof StoreSettings>;
 
 // Storefront. Public, so only Products and Variants on sale (not Archived) ever appear.
@@ -180,15 +182,18 @@ export type StorefrontProduct = {
 };
 
 // Cart. It holds Variants and quantities only; prices and Stock are read live on every Cart read.
-// At or below this Stock, a Variant shows "only N left".
-export const LOW_STOCK = 5;
-const cartQuantity = z.int().min(1).max(99);
+export const MAX_CART_QUANTITY = 99;
+const cartQuantity = z.int().min(1).max(MAX_CART_QUANTITY);
 export const CartItemInput = z.object({ variantId: z.string().min(1), quantity: cartQuantity });
 export type CartItemInput = z.input<typeof CartItemInput>;
 export const CartQuantity = z.object({ quantity: cartQuantity });
 export type CartQuantity = z.input<typeof CartQuantity>;
-// low_stock: at or below LOW_STOCK, or fewer left than the quantity wanted. archived: the Variant or its Product is no longer sold.
-export type CartAvailability = 'in_stock' | 'low_stock' | 'out_of_stock' | 'archived';
+// low_stock: at or below LOW_STOCK, or fewer left than the quantity wanted.
+export type StockState = 'in_stock' | 'low_stock' | 'out_of_stock';
+export const stockState = (stock: number, quantity = 0): StockState =>
+  stock === 0 ? 'out_of_stock' : stock <= LOW_STOCK || stock < quantity ? 'low_stock' : 'in_stock';
+// archived: the Variant or its Product is no longer sold.
+export type CartAvailability = StockState | 'archived';
 export type CartLine = {
   variantId: string;
   productId: string;
@@ -204,5 +209,6 @@ export type CartLine = {
   stock: number;
   availability: CartAvailability;
 };
-// subtotal counts only lines that can be bought now (not archived, not out of stock). No Shipping fee: checkout adds it.
-export type Cart = { items: CartLine[]; subtotal: number };
+// subtotal counts only lines that can be bought now (not archived, not out of stock). shippingFee is the
+// live Store setting, or 0 when no line can be bought; total = subtotal + shippingFee. Checkout snapshots both.
+export type Cart = { items: CartLine[]; subtotal: number; shippingFee: number; total: number };

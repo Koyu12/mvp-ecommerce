@@ -4,7 +4,8 @@ import type { LowStockVariant } from '@mvp/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
-import { AdminOnly, formatIdr } from './admin-only';
+import { formatIdr } from '../../lib/format';
+import { AdminOnly } from './admin-only';
 
 function LowStock() {
   const [variants, setVariants] = useState<LowStockVariant[] | null>(null);
