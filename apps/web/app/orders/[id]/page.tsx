@@ -26,6 +26,11 @@ export default function OrderPage() {
     if (r.data) setOrder(r.data);
     setError(r.error ? (r.error.message ?? 'Could not cancel the order.') : null);
   };
+  const received = async () => {
+    const r = await api<Order>(`/orders/${id}/received`, 'POST');
+    if (r.data) setOrder(r.data);
+    setError(r.error ? (r.error.message ?? 'Could not confirm the order.') : null);
+  };
 
   const a = order?.address;
   return (
@@ -51,6 +56,13 @@ export default function OrderPage() {
           {order.shipment && (
             <p>
               Shipped with {order.shipment.courier} · tracking number {order.shipment.trackingNumber}
+            </p>
+          )}
+          {order.status === 'shipped' && (
+            <p>
+              <button type="button" onClick={() => void received()}>
+                Order received
+              </button>
             </p>
           )}
           <ul>

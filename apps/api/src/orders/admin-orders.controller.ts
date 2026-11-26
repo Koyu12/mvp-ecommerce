@@ -31,4 +31,10 @@ export class AdminOrdersController {
   cancel(@Param('id') id: string): Promise<AdminOrder> {
     return this.orders.adminCancel(id);
   }
+
+  @Post(':id/complete')
+  @HttpCode(200)
+  complete(@Param('id') id: string): Promise<AdminOrder> {
+    return this.orders.adminComplete(id);
+  }
 }

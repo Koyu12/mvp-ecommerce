@@ -201,6 +201,28 @@ export class OrdersService {
     return order;
   }
 
+  // The Admin completes a shipped Order. A repeat returns it unchanged; any other status is refused.
+  async adminComplete(id: string): Promise<AdminOrder> {
+    const completed = await this.complete(id);
+    const order = await this.adminGet(id);
+    if (!completed && order.status !== 'completed') throw new ConflictException(`Only a shipped Order can be completed; this one is ${order.status}`);
+    return order;
+  }
+
+  // The Customer confirms their own shipped Order arrived ("Order received"). A repeat returns it unchanged.
+  async received(userId: string, id: string): Promise<Order> {
+    const completed = await this.complete(id, userId);
+    const order = await this.get(userId, id);
+    if (!completed && order.status !== 'completed') throw new ConflictException(`A ${order.status.replace('_', ' ')} Order can't be marked received`);
+    return order;
+  }
+
+  // shipped -> completed, guarded by status so the Customer, the Admin and the auto-complete job complete it once.
+  private async complete(id: string, userId?: string): Promise<boolean> {
+    const { count } = await this.prisma.order.updateMany({ where: { id, userId, status: 'shipped' }, data: { status: 'completed' } });
+    return count > 0;
+  }
+
   private async findByKey(userId: string, idempotencyKey: string): Promise<Order | null> {
     const row = await this.prisma.order.findUnique({ where: { userId_idempotencyKey: { userId, idempotencyKey } }, select: ORDER_FIELDS });
     return row && toOrder(row);

@@ -8,5 +8,6 @@ process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
 process.env.MIDTRANS_SERVER_KEY = 'test-server-key';
 process.env.STORAGE_PUBLIC_URL = 'https://images.test';
 process.env.QUEUE_PREFIX = `test-${crypto.randomUUID()}`;
-// Tests run the expiry sweep themselves with a fake clock; a scheduled one would race them.
+// Tests run the expiry and auto-complete sweeps themselves with a fake clock; a scheduled one would race them.
 process.env.ORDER_EXPIRY_SWEEP = 'off';
+process.env.ORDER_COMPLETION_SWEEP = 'off';
