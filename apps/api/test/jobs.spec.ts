@@ -3,8 +3,8 @@ import { PAYMENT_WINDOW_MS } from '@mvp/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/infra/prisma.service';
-import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
-import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion.processor';
+import { OrderExpiryProcessor } from '../src/jobs/order-expiry.processor';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
@@ -127,6 +127,23 @@ describe('Unpaid Order expiry', () => {
     expect(mails(o.email, 'Payment received')).toHaveLength(1);
   });
 
+  it('leaves an Order pending when Get Status reports it paid for the wrong amount, alerting the Admin once', async () => {
+    const admin = await prisma.user.create({ data: { id: randomUUID(), name: 'Admin', email: `${randomUUID()}@example.com`, emailVerified: true, role: 'admin' } });
+    const o = await pendingOrder();
+    const alerts = () => t.mailbox.sent.filter((m) => String(m.to).includes(admin.email) && String(m.subject).includes(o.order.number));
+    t.payments.statuses.set(o.order.number, { transaction_status: 'settlement', gross_amount: '1.00' });
+    pastDeadline();
+    await sweep();
+    await vi.waitFor(() => expect(alerts()).toHaveLength(1), { timeout: 15_000 });
+
+    // Every later run sees it again; the Admin is told once.
+    await sweep();
+    await settle();
+    expect(alerts()).toHaveLength(1);
+    expect(await o.status()).toBe('pending_payment');
+    expect(await o.stock()).toBe(8);
+  });
+
   it('leaves a card payment held for a fraud challenge pending', async () => {
     const o = await pendingOrder();
     t.payments.statuses.set(o.order.number, { transaction_status: 'capture', fraud_status: 'challenge', gross_amount: `${o.order.total}.00` });
@@ -189,15 +206,15 @@ describe('Shipped Order auto-complete', () => {
     return async () => (await prisma.order.findUniqueOrThrow({ where: { id } })).status;
   };
 
-  it('completes exactly the shipped Orders whose 7 days since shipping have passed, once', async () => {
+  it('completes exactly the shipped Orders shipped more than 7 days ago, once', async () => {
     const old = await orderIn('shipped');
     t.clock.advance(1);
     const recent = await orderIn('shipped');
     const paid = await orderIn('paid');
     const cancelled = await orderIn('cancelled');
 
-    // One millisecond short of 7 days for the first Order.
-    t.clock.advance(COMPLETION_WINDOW_MS - 2);
+    // Exactly 7 days since the first Order shipped: not more than 7 days yet.
+    t.clock.advance(COMPLETION_WINDOW_MS - 1);
     await sweep();
     expect(await old()).toBe('shipped');
 

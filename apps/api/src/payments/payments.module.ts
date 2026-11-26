@@ -1,15 +1,11 @@
 import { Module } from '@nestjs/common';
-import { EmailModule } from '../email/email.module';
 import { MidtransGateway } from './midtrans';
 import { PaymentGateway } from './payment-gateway';
-import { PaymentsController } from './payments.controller';
-import { PaymentsService } from './payments.service';
 
-// isPaidStatus in ./midtrans is a plain function: import it directly.
+// The payment provider port and its Midtrans adapter. Orders owns what a payment does to an Order.
+// isPaidStatus and the signature helpers in ./midtrans are plain functions: import them directly.
 @Module({
-  imports: [EmailModule],
-  controllers: [PaymentsController],
-  providers: [{ provide: PaymentGateway, useClass: MidtransGateway }, PaymentsService],
-  exports: [PaymentGateway, PaymentsService],
+  providers: [{ provide: PaymentGateway, useClass: MidtransGateway }],
+  exports: [PaymentGateway],
 })
 export class PaymentsModule {}

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-// Seeded by `pnpm --filter @mvp/api seed:e2e` (apps/api/src/e2e/seed.ts).
+// Seeded by `pnpm --filter @mvp/api seed:e2e` (apps/api/test/e2e-seed.mts).
 const EMAIL = 'e2e-customer@example.com';
 const PASSWORD = 'e2e-password-123';
 const PRODUCT_ID = 'e2e-product';

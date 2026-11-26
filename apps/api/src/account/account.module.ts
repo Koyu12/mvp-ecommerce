@@ -9,5 +9,6 @@ import { ProfileService } from './profile.service';
   imports: [AuthModule],
   controllers: [ProfileController, AddressesController],
   providers: [ProfileService, AddressesService],
+  exports: [AddressesService],
 })
 export class AccountModule {}

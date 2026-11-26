@@ -4,8 +4,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedAdmin } from '../src/auth/seed';
 import { PrismaService } from '../src/infra/prisma.service';
-import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
-import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion.processor';
+import { OrderExpiryProcessor } from '../src/jobs/order-expiry.processor';
 import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
 
@@ -501,7 +501,7 @@ describe('Checkout and Orders', () => {
 
     it('completes an Order once when the Customer, the Admin and the auto-complete job race', async () => {
       const { c, order: o } = await shippedOrder();
-      t.clock.advance(COMPLETION_WINDOW_MS);
+      t.clock.advance(COMPLETION_WINDOW_MS + 1);
       const job = t.app.get(OrderCompletionProcessor);
       const [received, completed] = await Promise.all([
         c.a.post(`/api/orders/${o.id}/received`),

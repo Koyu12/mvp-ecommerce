@@ -1,9 +1,8 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { OrdersModule } from '../orders/orders.module';
-import { PaymentsModule } from '../payments/payments.module';
-import { ORDER_COMPLETION_QUEUE, OrderCompletionProcessor } from './order-completion';
-import { ORDER_EXPIRY_QUEUE, OrderExpiryProcessor } from './order-expiry';
+import { ORDER_COMPLETION_QUEUE, OrderCompletionProcessor } from './order-completion.processor';
+import { ORDER_EXPIRY_QUEUE, OrderExpiryProcessor } from './order-expiry.processor';
 
 @Module({
   imports: [
@@ -11,7 +10,6 @@ import { ORDER_EXPIRY_QUEUE, OrderExpiryProcessor } from './order-expiry';
     BullModule.registerQueue({ name: ORDER_EXPIRY_QUEUE, defaultJobOptions: { removeOnComplete: true, removeOnFail: 100 } }),
     BullModule.registerQueue({ name: ORDER_COMPLETION_QUEUE, defaultJobOptions: { removeOnComplete: true, removeOnFail: 100 } }),
     OrdersModule,
-    PaymentsModule,
   ],
   providers: [OrderExpiryProcessor, OrderCompletionProcessor],
 })

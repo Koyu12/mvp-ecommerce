@@ -14,7 +14,7 @@ It is not part of `pnpm test` because it needs the whole stack running.
    ```
 
 2. Start the stack: `docker compose up -d --build`.
-3. Build the API once (the seed runs from `dist`): `pnpm --filter @mvp/api build`.
+3. Build the shared package once (the seed imports it from `dist`): `pnpm --filter @mvp/shared build`.
 4. Install the browser once: `pnpm --filter @mvp/e2e exec playwright install chromium`.
 5. Seed and run, with `DATABASE_URL` pointing at the Compose database:
 
@@ -22,7 +22,7 @@ It is not part of `pnpm test` because it needs the whole stack running.
    DATABASE_URL=postgresql://store:store@localhost:5432/store pnpm e2e
    ```
 
-`pnpm e2e` runs `pnpm --filter @mvp/api seed:e2e` (`apps/api/src/e2e/seed.ts`), then the test. The seed is safe to run again: it resets the E2E Customer's Cart, Orders and Address and refills the Stock.
+`pnpm e2e` runs `pnpm --filter @mvp/api seed:e2e` (`apps/api/test/e2e-seed.mts`, run by Node straight from TypeScript), then the test. The seed is safe to run again: it resets the E2E Customer's Cart, Orders and Address and refills the Stock.
 
 The test targets `http://localhost:3000`; set `E2E_BASE_URL` for another web origin. With `pnpm dev` instead of Compose, put the keys in `apps/api/.env` and in the shell or root `.env`.
 

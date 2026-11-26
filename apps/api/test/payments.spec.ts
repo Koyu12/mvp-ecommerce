@@ -140,13 +140,54 @@ describe('Payment', () => {
     expect(t.payments.requests.filter((r) => r.orderNumber === order.number)).toHaveLength(1);
   });
 
-  it('answers 502 when the gateway fails, and a retry with the same key starts the payment', async () => {
+  it('emails the Order created with its payment link and the payment deadline in WIB', async () => {
+    const c = await customer();
+    // A day no other test file filters on: the files share one database.
+    t.clock.set(new Date('2026-06-15T10:00:00Z'));
+    const { body: order } = await c.checkout().expect(201);
+    await vi.waitFor(() => expect(c.mails(`Order ${order.number} created`)).toHaveLength(1), { timeout: 15_000 });
+    const text = String(c.mails(`Order ${order.number} created`)[0]!.text);
+    expect(text).toContain(`Pay now: https://pay.test/${order.number}`);
+    // 30 minutes after 17:00 WIB (10:00 UTC).
+    expect(text).toContain('Please pay by 2026-06-15 17:30 WIB');
+  });
+
+  it('answers 502 when the gateway fails, still emails the Order with its page link, and a retry with the same key starts the payment', async () => {
     const c = await customer();
     const key = randomUUID();
     t.payments.failNext = 1;
     await c.checkout(key).expect(502);
+    const [placed] = await prisma.order.findMany({ where: { user: { email: c.email } } });
+    await vi.waitFor(() => expect(c.mails(`Order ${placed!.number} created`)).toHaveLength(1), { timeout: 15_000 });
+    const text = String(c.mails(`Order ${placed!.number} created`)[0]!.text);
+    expect(text).not.toContain('Pay now');
+    expect(text).toContain(`See your Order: http://localhost:3000/orders/${placed!.id}`);
+
     const { body: order } = await c.checkout(key).expect(201);
     expect(order.paymentUrl).toBe(`https://pay.test/${order.number}`);
+  });
+
+  it('starts a failed payment from "Pay now" for the owner of a pending Order within its payment window', async () => {
+    const c = await customer();
+    const other = await customer();
+    t.payments.failNext = 1;
+    await c.checkout().expect(502);
+    const [placed] = await prisma.order.findMany({ where: { user: { email: c.email } } });
+    const pay = (agent = c.a) => agent.post(`/api/orders/${placed!.id}/pay`);
+
+    await request(t.app.getHttpServer()).post(`/api/orders/${placed!.id}/pay`).expect(401);
+    await pay(other.a).expect(404);
+    const { body: order } = await pay().expect(200);
+    expect(order).toMatchObject({ id: placed!.id, status: 'pending_payment', paymentUrl: `https://pay.test/${placed!.number}` });
+    // A repeat answers the same page without a second Snap payment.
+    await pay().expect(200).expect((r) => expect(r.body.paymentUrl).toBe(order.paymentUrl));
+    expect(t.payments.requests.filter((r) => r.orderNumber === placed!.number)).toHaveLength(1);
+
+    t.clock.advance(30 * 60_000);
+    await pay().expect(409);
+    t.clock.advance(-30 * 60_000);
+    await c.a.post(`/api/orders/${placed!.id}/cancel`).expect(200);
+    await pay().expect(409);
   });
 
   it('marks the Order paid on a valid settlement and queues both emails once', async () => {
@@ -191,6 +232,26 @@ describe('Payment', () => {
     expect(c.mails('Payment received')).toHaveLength(1);
   });
 
+  it.each(['expire', 'cancel'])('expires a pending Order on a %s notification, returning its Stock once', async (transaction_status) => {
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    const stock = async () => (await prisma.variant.findUniqueOrThrow({ where: { id: c.variant.id } })).stock;
+    expect(await stock()).toBe(8);
+
+    await notify(order, { transaction_status, status_code: '202' }).expect(200);
+    await notify(order, { transaction_status, status_code: '202' }).expect(200);
+    expect(await statusOf(order.id)).toBe('expired');
+    expect(await stock()).toBe(10);
+    await vi.waitFor(() => expect(c.mails(`Order ${order.number} expired`)).toHaveLength(1), { timeout: 15_000 });
+  });
+
+  it('ignores deny, since the Customer may still pay another way', async () => {
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await notify(order, { transaction_status: 'deny', status_code: '202' }).expect(200);
+    expect(await statusOf(order.id)).toBe('pending_payment');
+  });
+
   it('rejects a bad signature or a tampered amount, changing nothing', async () => {
     const c = await customer();
     const { body: order } = await c.checkout().expect(201);
@@ -203,6 +264,42 @@ describe('Payment', () => {
     await request(t.app.getHttpServer()).post('/api/payments/notification').send({ order_id: order.number }).expect(400);
     await settle();
     expect(await statusOf(order.id)).toBe('pending_payment');
+    expect(c.mails('Payment received')).toHaveLength(0);
+  });
+
+  // An Admin, and the alerts about one Order that reach them.
+  const anAdmin = async () => {
+    const admin = await prisma.user.create({ data: { id: randomUUID(), name: 'Admin', email: `${randomUUID()}@example.com`, emailVerified: true, role: 'admin' } });
+    return (number: string, subject: string) =>
+      t.mailbox.sent.filter((m) => String(m.to).includes(admin.email) && String(m.subject).includes(number) && String(m.subject).includes(subject));
+  };
+
+  it('leaves the Order pending on a signed paid notification for the wrong amount, alerting the Admin once', async () => {
+    const alerts = await anAdmin();
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await notify(order, { gross_amount: '1.00' }).expect(200);
+    await vi.waitFor(() => expect(alerts(order.number, 'amount')).toHaveLength(1), { timeout: 15_000 });
+
+    // Midtrans retries the notification: no second alert.
+    await notify(order, { gross_amount: '1.00' }).expect(200);
+    await settle();
+    expect(alerts(order.number, 'amount')).toHaveLength(1);
+    expect(await statusOf(order.id)).toBe('pending_payment');
+  });
+
+  it('keeps a cancelled Order cancelled when its payment arrives, alerting the Admin once to refund it', async () => {
+    const alerts = await anAdmin();
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await c.a.post(`/api/orders/${order.id}/cancel`).expect(200);
+    await notify(order).expect(200);
+    await vi.waitFor(() => expect(alerts(order.number, 'Refund')).toHaveLength(1), { timeout: 15_000 });
+
+    await notify(order).expect(200);
+    await settle();
+    expect(alerts(order.number, 'Refund')).toHaveLength(1);
+    expect(await statusOf(order.id)).toBe('cancelled');
     expect(c.mails('Payment received')).toHaveLength(0);
   });
 });

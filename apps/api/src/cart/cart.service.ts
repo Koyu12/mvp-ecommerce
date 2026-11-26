@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { type Cart, type CartAvailability, type CartItemInput, effectivePrice, MAX_CART_QUANTITY, stockState } from '@mvp/shared';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -55,6 +56,32 @@ export class CartService {
     // Nothing to ship, so no fee.
     const shippingFee = billable.length ? (await this.settings.read()).shippingFee : 0;
     return { items, subtotal, shippingFee, total: subtotal + shippingFee };
+  }
+
+  // For checkout, in its transaction: the Cart's lines with what an Order copies from each Variant, oldest first.
+  checkoutLines(tx: Prisma.TransactionClient, userId: string) {
+    return tx.cartItem.findMany({
+      where: { userId },
+      orderBy: [{ createdAt: 'asc' }, { variantId: 'asc' }],
+      select: {
+        quantity: true,
+        variant: {
+          select: {
+            id: true,
+            sku: true,
+            price: true,
+            archived: true,
+            optionValues: { orderBy: [{ optionType: { createdAt: 'asc' } }, { optionTypeId: 'asc' }], select: { value: true } },
+            product: { select: { name: true, price: true, archived: true } },
+          },
+        },
+      },
+    });
+  }
+
+  // For checkout, in its transaction: drops the bought Variants from the Cart.
+  async removeItems(tx: Prisma.TransactionClient, userId: string, variantIds: string[]): Promise<void> {
+    await tx.cartItem.deleteMany({ where: { userId, variantId: { in: variantIds } } });
   }
 
   // Adds to the quantity already in the Cart. The price seen is recorded only when the item is first added,
