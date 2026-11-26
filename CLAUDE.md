@@ -26,7 +26,7 @@ Put new files in their feature's folder. Never add feature code at the root of `
 
 ## Validation and shared types
 
-Zod schemas and types live in `packages/shared/src/`, one file per feature mirroring the API modules (`auth.ts`, `account.ts`, `catalog.ts`, `cart.ts`, `settings.ts`, `media.ts`, plus `money.ts`). `index.ts` only re-exports. Import them from `@mvp/shared` in both the API and the web app; never copy a schema.
+Zod schemas and types live in `packages/shared/src/`, one file per feature mirroring the API modules (`auth.ts`, `account.ts`, `catalog.ts`, `cart.ts`, `settings.ts`, `media.ts`, `health.ts`, plus internal helpers `money.ts` and `text.ts`). `index.ts` only re-exports. Import them from `@mvp/shared` in both the API and the web app; never copy a schema.
 
 A schema only the API uses (for example a payment webhook payload or a job's data) lives in its module as `<name>.schema.ts`. No `dto/` folders.
 
