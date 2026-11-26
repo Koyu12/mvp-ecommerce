@@ -10,7 +10,8 @@
     "dev": "turbo run dev",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "e2e": "pnpm --filter @mvp/api seed:e2e && pnpm --filter @mvp/e2e e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -8,6 +8,7 @@
     "dev": "nest start --watch --exec \"node --env-file-if-exists=.env\"",
     "start": "node dist/main.js",
     "seed": "node --env-file-if-exists=.env dist/auth/seed.js",
+    "seed:e2e": "node --env-file-if-exists=.env dist/e2e/seed.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
