@@ -2,22 +2,21 @@ import { BullModule } from '@nestjs/bullmq';
 import { INestApplication, Module } from '@nestjs/common';
 import { toNodeHandler } from 'better-auth/node';
 import { AddressesController } from './account/addresses.controller';
-import { Auth, AUTH, createAuth } from './auth/auth';
+import { ProfileController } from './account/profile.controller';
+import { Auth, AUTH } from './auth/auth';
+import { AuthModule } from './auth/auth.module';
 import { CartController } from './cart/cart.controller';
 import { CATALOG_CONTROLLERS } from './catalog/catalog';
-import { Clock, SystemClock } from './infra/clock';
-import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email/email.queue';
+import { EmailModule } from './email/email.module';
 import { HealthController } from './health/health.controller';
-import { MAIL_TRANSPORT, MailService } from './email/mail';
+import { InfraModule } from './infra/infra.module';
 import { Presigner, S3Presigner } from './media/presigner';
-import { PrismaService } from './infra/prisma.service';
-import { ProfileController } from './account/profile.controller';
-import { RedisService } from './infra/redis.service';
-import { SettingsController } from './settings/settings.controller';
 import { UploadsController } from './media/uploads.controller';
+import { SettingsController } from './settings/settings.controller';
 
 @Module({
   imports: [
+    // Root queue config, shared by every feature that registers a queue.
     // A factory so the env is read at boot, after the test harness has set it.
     BullModule.forRootAsync({
       useFactory: () => ({
@@ -25,23 +24,13 @@ import { UploadsController } from './media/uploads.controller';
         prefix: process.env.QUEUE_PREFIX ?? 'bull',
       }),
     }),
-    BullModule.registerQueue({
-      name: EMAIL_QUEUE,
-      defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true },
-    }),
+    InfraModule,
+    EmailModule,
+    AuthModule,
   ],
+  // shortcut: health, account, media, catalog, cart and settings are still registered here directly, converted to feature modules in wave 2.
   controllers: [HealthController, ProfileController, AddressesController, SettingsController, UploadsController, ...CATALOG_CONTROLLERS, CartController],
-  providers: [
-    PrismaService,
-    RedisService,
-    MailService,
-    EmailQueue,
-    EmailProcessor,
-    { provide: AUTH, useFactory: createAuth, inject: [PrismaService, EmailQueue, Clock] },
-    { provide: Clock, useClass: SystemClock },
-    { provide: Presigner, useClass: S3Presigner },
-    { provide: MAIL_TRANSPORT, useValue: process.env.SMTP_URL ?? 'smtp://localhost:1025' },
-  ],
+  providers: [{ provide: Presigner, useClass: S3Presigner }],
 })
 export class AppModule {}
 
