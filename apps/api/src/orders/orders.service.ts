@@ -391,7 +391,12 @@ export class OrdersService {
   // late `pending`s and a `settlement` after a card `capture` change nothing and queue no email.
   async applyPaymentNotification(n: MidtransNotification): Promise<void> {
     if (!isValidSignature(n, process.env.MIDTRANS_SERVER_KEY ?? '')) throw new UnauthorizedException('Invalid signature');
-    if (isPaidStatus(n)) await this.markPaid(n.order_id, Number(n.gross_amount));
+    if (isPaidStatus(n)) return this.markPaid(n.order_id, Number(n.gross_amount));
+    // The payment ended for good: end the Order as the expiry job would. `deny` isn't final in Snap (the Customer may retry).
+    if (n.transaction_status === 'expire' || n.transaction_status === 'cancel') {
+      const order = await this.prisma.order.findUnique({ where: { number: n.order_id }, select: { id: true } });
+      if (order) await this.expire(order.id);
+    }
   }
 
   // Pays a pending Order whose total matches the amount Midtrans received, and queues the paid emails once.
@@ -421,7 +426,8 @@ export class OrdersService {
     }
   }
 
-  // The expiry job ends an Order left unpaid past its deadline. A no-op unless it is still pending_payment.
+  // Ends an Order left unpaid: past its deadline (the expiry job) or whose payment Midtrans expired or cancelled.
+  // A no-op unless it is still pending_payment.
   private async expire(id: string): Promise<void> {
     const ended = await this.end(id, 'expired');
     if (ended) await this.queueEndedEmail(ended, 'expired', `Your Order ${ended.number} expired because it was not paid in time.`);

@@ -191,6 +191,26 @@ describe('Payment', () => {
     expect(c.mails('Payment received')).toHaveLength(1);
   });
 
+  it.each(['expire', 'cancel'])('expires a pending Order on a %s notification, returning its Stock once', async (transaction_status) => {
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    const stock = async () => (await prisma.variant.findUniqueOrThrow({ where: { id: c.variant.id } })).stock;
+    expect(await stock()).toBe(8);
+
+    await notify(order, { transaction_status, status_code: '202' }).expect(200);
+    await notify(order, { transaction_status, status_code: '202' }).expect(200);
+    expect(await statusOf(order.id)).toBe('expired');
+    expect(await stock()).toBe(10);
+    await vi.waitFor(() => expect(c.mails(`Order ${order.number} expired`)).toHaveLength(1), { timeout: 15_000 });
+  });
+
+  it('ignores deny, since the Customer may still pay another way', async () => {
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await notify(order, { transaction_status: 'deny', status_code: '202' }).expect(200);
+    expect(await statusOf(order.id)).toBe('pending_payment');
+  });
+
   it('rejects a bad signature or a tampered amount, changing nothing', async () => {
     const c = await customer();
     const { body: order } = await c.checkout().expect(201);
