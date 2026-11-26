@@ -30,6 +30,7 @@ model User {
   accounts      Account[]
   addresses     Address[]
   cartItems     CartItem[]
+  orders        Order[]
 
   @@map("user")
 }
@@ -172,6 +173,7 @@ model Variant {
   archived     Boolean       @default(false)
   optionValues OptionValue[]
   cartItems    CartItem[]
+  orderItems   OrderItem[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -203,4 +205,74 @@ model CartItem {
   @@id([userId, variantId])
   @@index([variantId])
   @@map("cart_item")
+}
+
+enum OrderStatus {
+  pending_payment
+  paid
+  shipped
+  completed
+  cancelled
+  expired
+}
+
+// A Customer's purchase. Prices, the Shipping fee and the Address are copies taken at checkout,
+// so later catalog, settings or address-book edits never change it. All amounts are integer IDR.
+model Order {
+  id             String      @id @default(cuid())
+  // ORD-YYYYMMDD-NNNN, shown to the Customer and used as the payment invoice number.
+  number         String      @unique
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  // The client's Idempotency-Key: a repeated checkout with the same key returns this Order.
+  idempotencyKey String
+  status         OrderStatus @default(pending_payment)
+  subtotal       Int
+  shippingFee    Int
+  total          Int
+  // Address snapshot.
+  recipientName  String
+  phone          String
+  line1          String
+  line2          String?
+  city           String
+  region         String
+  postalCode     String
+  items          OrderItem[]
+  // From the injected Clock, so the payment deadline and expiry can be tested.
+  createdAt      DateTime
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("order")
+}
+
+// One line of an Order: the Variant as it was at checkout.
+model OrderItem {
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Display order within the Order.
+  position    Int
+  variantId   String
+  variant     Variant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  productName String
+  sku         String
+  options     String[]
+  unitPrice   Int
+  quantity    Int
+  lineTotal   Int
+
+  @@id([orderId, position])
+  @@index([variantId])
+  @@map("order_item")
+}
+
+// The last Order number handed out on each Jakarta day; checkout increments it in its transaction.
+model OrderNumberSequence {
+  day  String @id
+  last Int
+
+  @@map("order_number_sequence")
 }

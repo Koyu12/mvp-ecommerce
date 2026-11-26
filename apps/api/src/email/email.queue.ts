@@ -16,10 +16,15 @@ export interface EmailJob {
 export class EmailQueue {
   constructor(@InjectQueue(EMAIL_QUEUE) private readonly queue: Queue<EmailJob>) {}
 
-  async enqueue(email: EmailJob): Promise<void> {
-    await this.queue.add('send', email);
+  // A jobId makes a repeat enqueue a no-op while the first job is still queued, so retries never send twice.
+  async enqueue(email: EmailJob, jobId?: string): Promise<void> {
+    await this.queue.add('send', email, { jobId });
   }
 }
+
+// The job id of an Order's email for one event. BullMQ refuses custom ids with a single ':', so the spec's
+// `<order>:<event>` is written with a '-'.
+export const orderEmailJobId = (orderId: string, event: string) => `${orderId}-${event}`;
 
 @Processor(EMAIL_QUEUE)
 export class EmailProcessor extends WorkerHost {

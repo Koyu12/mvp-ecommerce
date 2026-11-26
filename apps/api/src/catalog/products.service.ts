@@ -109,19 +109,29 @@ export class ProductsService {
     return toVariant(row);
   }
 
-  async updateVariant(id: string, { optionValueIds, ...data }: VariantUpdate): Promise<AdminVariant> {
+  async updateVariant(id: string, { optionValueIds, expectedStock, ...data }: VariantUpdate): Promise<AdminVariant> {
     checkImage(data.image);
     if (optionValueIds) {
       const variant = await this.prisma.variant.findUnique({ where: { id }, select: { productId: true } });
       if (!variant) throw new NotFoundException();
       await this.checkOptionValues(await this.find(variant.productId), optionValueIds, id);
     }
-    const row = await this.prisma.variant.update({
-      where: { id },
-      data: { ...data, optionValues: optionValueIds && { set: optionValueIds.map((id) => ({ id })) } },
-      select: VARIANT_FIELDS,
-    });
-    return toVariant(row);
+    // A Stock edit applies only if Stock is still what the Admin saw, so it never overwrites a checkout's reservation.
+    const guard = data.stock === undefined ? {} : { stock: expectedStock };
+    try {
+      const row = await this.prisma.variant.update({
+        where: { id, ...guard },
+        data: { ...data, optionValues: optionValueIds && { set: optionValueIds.map((id) => ({ id })) } },
+        select: VARIANT_FIELDS,
+      });
+      return toVariant(row);
+    } catch (error) {
+      const notFound = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025';
+      if (notFound && data.stock !== undefined && (await this.prisma.variant.count({ where: { id } }))) {
+        throw new ConflictException('Stock changed since you loaded it, so nothing was saved. Reload and try again.');
+      }
+      throw error;
+    }
   }
 
   // Variants on sale whose Stock is below the threshold, so the Admin can restock in time.
