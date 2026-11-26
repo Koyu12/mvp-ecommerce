@@ -501,7 +501,7 @@ describe('Checkout and Orders', () => {
 
     it('completes an Order once when the Customer, the Admin and the auto-complete job race', async () => {
       const { c, order: o } = await shippedOrder();
-      t.clock.advance(COMPLETION_WINDOW_MS);
+      t.clock.advance(COMPLETION_WINDOW_MS + 1);
       const job = t.app.get(OrderCompletionProcessor);
       const [received, completed] = await Promise.all([
         c.a.post(`/api/orders/${o.id}/received`),

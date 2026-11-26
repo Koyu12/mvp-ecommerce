@@ -7,7 +7,7 @@ import { OrdersService } from '../orders/orders.service';
 export const ORDER_COMPLETION_QUEUE = 'order-completion';
 export const COMPLETION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Every hour, completes each shipped Order shipped 7 or more days ago (ADR 0003).
+// Every hour, completes each Order shipped more than 7 days ago (ADR 0003).
 @Processor(ORDER_COMPLETION_QUEUE)
 export class OrderCompletionProcessor extends WorkerHost implements OnApplicationBootstrap {
   constructor(

@@ -257,9 +257,9 @@ export class OrdersService {
     return count > 0;
   }
 
-  // The auto-complete job: completes every Order shipped at or before `shippedBefore`, with the same status guard.
+  // The auto-complete job: completes every Order shipped before `shippedBefore`, with the same status guard.
   async completeShippedBefore(shippedBefore: Date): Promise<void> {
-    await this.prisma.order.updateMany({ where: { status: 'shipped', shippedAt: { lte: shippedBefore } }, data: { status: 'completed' } });
+    await this.prisma.order.updateMany({ where: { status: 'shipped', shippedAt: { lt: shippedBefore } }, data: { status: 'completed' } });
   }
 
   // After a status-guarded change: the Order as it is now. When the change moved nothing, a repeat that already

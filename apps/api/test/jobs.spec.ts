@@ -189,15 +189,15 @@ describe('Shipped Order auto-complete', () => {
     return async () => (await prisma.order.findUniqueOrThrow({ where: { id } })).status;
   };
 
-  it('completes exactly the shipped Orders whose 7 days since shipping have passed, once', async () => {
+  it('completes exactly the shipped Orders shipped more than 7 days ago, once', async () => {
     const old = await orderIn('shipped');
     t.clock.advance(1);
     const recent = await orderIn('shipped');
     const paid = await orderIn('paid');
     const cancelled = await orderIn('cancelled');
 
-    // One millisecond short of 7 days for the first Order.
-    t.clock.advance(COMPLETION_WINDOW_MS - 2);
+    // Exactly 7 days since the first Order shipped: not more than 7 days yet.
+    t.clock.advance(COMPLETION_WINDOW_MS - 1);
     await sweep();
     expect(await old()).toBe('shipped');
 
