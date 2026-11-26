@@ -79,6 +79,10 @@ services:
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
       STORAGE_PUBLIC_URL: http://localhost:9000/images
+      # Midtrans sandbox keys; set in your shell or a root .env file. Notifications reach the API through the web proxy.
+      MIDTRANS_SERVER_KEY: ${MIDTRANS_SERVER_KEY:-}
+      MIDTRANS_CLIENT_KEY: ${MIDTRANS_CLIENT_KEY:-}
+      MIDTRANS_IS_PRODUCTION: ${MIDTRANS_IS_PRODUCTION:-false}
     # No published port: browsers reach the API only through the web app's /api proxy (ADR 0001),
     # so the auth rate limits can't be skipped by calling the API directly.
     expose:

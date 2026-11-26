@@ -28,7 +28,9 @@ export default function CheckoutPage() {
   const { onSubmit, error, pending } = useSubmit(async (form) => {
     setShort([]);
     const result = await api<Order>('/orders', 'POST', { addressId: String(form.get('addressId')) }, { 'Idempotency-Key': idempotencyKey });
-    if (result.data) router.push(`/orders/${result.data.id}`);
+    // Off to the Midtrans payment page; it sends the Customer back to the Order when done.
+    if (result.data?.paymentUrl) window.location.assign(result.data.paymentUrl);
+    else if (result.data) router.push(`/orders/${result.data.id}`);
     const body = result.error?.body as { shortItems?: ShortItem[] } | null | undefined;
     if (body?.shortItems) setShort(body.shortItems);
     return result;
