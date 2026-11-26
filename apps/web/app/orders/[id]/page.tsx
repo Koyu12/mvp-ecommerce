@@ -37,6 +37,11 @@ export default function OrderPage() {
               <a href={order.paymentUrl}>Pay now</a>
             </p>
           )}
+          {order.shipment && (
+            <p>
+              Shipped with {order.shipment.courier} · tracking number {order.shipment.trackingNumber}
+            </p>
+          )}
           <ul>
             {order.items.map((i) => (
               <li key={`${i.variantId}-${i.sku}`}>

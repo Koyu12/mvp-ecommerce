@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Address } from './account';
+import { required } from './text';
 
 // Checkout. The Cart is bought as a whole; prices and the Shipping fee always come from the database.
 export const CheckoutInput = z.object({ addressId: z.string().min(1) });
@@ -35,13 +36,32 @@ export type Order = OrderSummary & {
   address: Omit<Address, 'id'>;
   // The payment page; "pay now" while the Order is pending_payment. Null until the payment is created.
   paymentUrl: string | null;
+  // Set when the Order is shipped.
+  shipment: Shipment | null;
 };
+export type Shipment = { courier: string; trackingNumber: string; shippedAt: string };
+
+// Admin Order management. Dates are Jakarta days (YYYY-MM-DD), both ends inclusive, matched on when the Order was placed.
+export const AdminOrderQuery = z.object({
+  status: z.enum(ORDER_STATUSES).optional(),
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+});
+export type AdminOrderQuery = z.input<typeof AdminOrderQuery>;
+export type OrderCustomer = { name: string; email: string };
+export type AdminOrderSummary = OrderSummary & { customer: OrderCustomer };
+export type AdminOrder = Order & { customer: OrderCustomer };
+export const ShipInput = z.object({ courier: required(50), trackingNumber: required(100) });
+export type ShipInput = z.input<typeof ShipInput>;
 
 // Why checkout refused a Cart line: not enough Stock, or no longer sold.
 export type ShortItem = { variantId: string; sku: string; productName: string; requested: number; available: number; archived: boolean };
 
 export const orderTotal = (items: { unitPrice: number; quantity: number }[], shippingFee: number) =>
   items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0) + shippingFee;
+
+// The UTC instant a Jakarta day (YYYY-MM-DD) starts.
+export const jakartaDayStart = (day: string) => new Date(`${day}T00:00:00+07:00`);
 
 // The Store is in Indonesia, so the day in the Order number is the Jakarta (UTC+7, no DST) date.
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;

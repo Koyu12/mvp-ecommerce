@@ -1,17 +1,21 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  type AdminOrder,
+  type AdminOrderSummary,
   type CheckoutInput,
   effectivePrice,
   formatOrderNumber,
+  jakartaDayStart,
   type Order,
   orderNumberDay,
   type OrderSummary,
   orderTotal,
   PAYMENT_WINDOW_MS,
+  type ShipInput,
   type ShortItem,
 } from '@mvp/shared';
 import { Prisma } from '@prisma/client';
-import { EmailQueue, orderEmailJobId } from '../email/email.queue';
+import { type EmailJob, EmailQueue, orderEmailJobId } from '../email/email.queue';
 import { Clock } from '../infra/clock';
 import { PrismaService } from '../infra/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -30,6 +34,9 @@ const ORDER_FIELDS = {
   region: true,
   postalCode: true,
   paymentUrl: true,
+  courier: true,
+  trackingNumber: true,
+  shippedAt: true,
   items: {
     orderBy: { position: 'asc' },
     select: { variantId: true, productName: true, sku: true, options: true, unitPrice: true, quantity: true, lineTotal: true },
@@ -41,14 +48,32 @@ const toSummary = ({ createdAt, ...o }: Prisma.OrderGetPayload<{ select: typeof 
   ...o,
   createdAt: createdAt.toISOString(),
 });
-const toOrder = ({ id, number, status, total, createdAt, subtotal, shippingFee, items, paymentUrl, ...address }: OrderRow): Order => ({
+const toOrder = ({
+  id,
+  number,
+  status,
+  total,
+  createdAt,
+  subtotal,
+  shippingFee,
+  items,
+  paymentUrl,
+  courier,
+  trackingNumber,
+  shippedAt,
+  ...address
+}: OrderRow): Order => ({
   ...toSummary({ id, number, status, total, createdAt }),
   subtotal,
   shippingFee,
   items,
   address,
   paymentUrl,
+  shipment: courier && trackingNumber && shippedAt ? { courier, trackingNumber, shippedAt: shippedAt.toISOString() } : null,
 });
+const CUSTOMER_FIELDS = { user: { select: { name: true, email: true } } } satisfies Prisma.OrderSelect;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const webUrl = () => process.env.BETTER_AUTH_URL ?? 'http://localhost:3000';
 
 // Checkout and a Customer's Orders. Every read is scoped to the Customer, so another Customer's Order answers 404.
 @Injectable()
@@ -107,6 +132,82 @@ export class OrdersService {
     const row = await this.prisma.order.findFirst({ where: { id, userId }, select: ORDER_FIELDS });
     if (!row) throw new NotFoundException();
     return toOrder(row);
+  }
+
+  // Admin views of every Customer's Orders.
+  // shortcut: every matching Order in one response; add paging when the Admin list grows past a few thousand.
+  async adminList({ status, from, to }: { status?: Order['status']; from?: string; to?: string }): Promise<AdminOrderSummary[]> {
+    const rows = await this.prisma.order.findMany({
+      where: {
+        status,
+        createdAt: { gte: from ? jakartaDayStart(from) : undefined, lt: to ? new Date(jakartaDayStart(to).getTime() + DAY_MS) : undefined },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { ...SUMMARY_FIELDS, ...CUSTOMER_FIELDS },
+    });
+    return rows.map(({ user, ...o }) => ({ ...toSummary(o), customer: user }));
+  }
+
+  async adminGet(id: string): Promise<AdminOrder> {
+    const row = await this.prisma.order.findUnique({ where: { id }, select: { ...ORDER_FIELDS, ...CUSTOMER_FIELDS } });
+    if (!row) throw new NotFoundException();
+    const { user, ...order } = row;
+    return { ...toOrder(order), customer: user };
+  }
+
+  // paid -> shipped, once: the status-guarded update ships an Order a single time, so a repeat returns it unchanged.
+  async ship(id: string, { courier, trackingNumber }: ShipInput): Promise<AdminOrder> {
+    const { count } = await this.prisma.order.updateMany({
+      where: { id, status: 'paid' },
+      data: { status: 'shipped', courier, trackingNumber, shippedAt: this.clock.now() },
+    });
+    const order = await this.adminGet(id);
+    if (!count) {
+      if (order.status === 'shipped') return order;
+      throw new ConflictException(`Only a paid Order can be shipped; this one is ${order.status}`);
+    }
+    await this.queueEmail(orderEmailJobId(id, 'shipped'), {
+      to: order.customer.email,
+      subject: `Order ${order.number} shipped`,
+      text: [
+        `Your Order ${order.number} is on its way.`,
+        `Courier: ${courier}`,
+        `Tracking number: ${trackingNumber}`,
+        `See your Order: ${webUrl()}/orders/${id}`,
+      ].join('\n'),
+    });
+    return order;
+  }
+
+  // pending_payment or paid -> cancelled, once: the status-guarded update and the Stock release share one transaction,
+  // so a repeat, a racing cancel or expiry finds nothing to cancel and Stock is returned a single time.
+  // The refund of a paid Order is done by hand in Midtrans.
+  async cancel(id: string): Promise<AdminOrder> {
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({ where: { id, status: { in: ['pending_payment', 'paid'] } }, data: { status: 'cancelled' } });
+      if (count) await this.releaseStock(tx, id);
+      return count > 0;
+    });
+    const order = await this.adminGet(id);
+    if (!cancelled) {
+      if (order.status === 'cancelled') return order;
+      throw new ConflictException(`Only a pending or paid Order can be cancelled; this one is ${order.status}`);
+    }
+    await this.queueEmail(orderEmailJobId(id, 'cancelled'), {
+      to: order.customer.email,
+      subject: `Order ${order.number} cancelled`,
+      text: `Your Order ${order.number} has been cancelled. If you already paid, your payment will be refunded.\nSee your Order: ${webUrl()}/orders/${id}`,
+    });
+    return order;
+  }
+
+  // Returns an Order's reserved Stock to its Variants, inside the caller's transaction. The caller makes sure it runs once.
+  async releaseStock(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    // Variant id order, like checkout, so concurrent releases and reservations can't deadlock.
+    const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { variantId: 'asc' }, select: { variantId: true, quantity: true } });
+    for (const { variantId, quantity } of items) {
+      await tx.variant.update({ where: { id: variantId }, data: { stock: { increment: quantity } } });
+    }
   }
 
   private async findByKey(userId: string, idempotencyKey: string): Promise<Order | null> {
@@ -205,12 +306,17 @@ export class OrdersService {
       `Shipping: Rp${order.shippingFee}`,
       `Total: Rp${order.total}`,
       `Please pay by ${deadline.toISOString()}, or the Order expires.`,
-      `See your Order: ${process.env.BETTER_AUTH_URL ?? 'http://localhost:3000'}/orders/${order.id}`,
+      `See your Order: ${webUrl()}/orders/${order.id}`,
     ].join('\n');
+    await this.queueEmail(orderEmailJobId(order.id, 'created'), { to, subject: `Order ${order.number} created`, text });
+  }
+
+  // After commit. If Redis is down the Order change stands and only this email is lost (accepted in the spec).
+  private async queueEmail(jobId: string, email: EmailJob): Promise<void> {
     try {
-      await this.emails.enqueue({ to, subject: `Order ${order.number} created`, text }, orderEmailJobId(order.id, 'created'));
+      await this.emails.enqueue(email, jobId);
     } catch (error) {
-      this.logger.error(`Could not queue the created email for ${order.number}`, error);
+      this.logger.error(`Could not queue the email ${jobId}`, error);
     }
   }
 }

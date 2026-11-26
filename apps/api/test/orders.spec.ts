@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { formatOrderNumber, orderTotal } from '@mvp/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { seedAdmin } from '../src/auth/seed';
 import { PrismaService } from '../src/infra/prisma.service';
+import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';
@@ -27,12 +29,17 @@ describe('Order number', () => {
 describe('Checkout and Orders', () => {
   let t: TestApp;
   let prisma: PrismaService;
+  const google = new FakeGoogle();
 
   beforeAll(async () => {
+    vi.stubGlobal('fetch', google.wrap(globalThis.fetch));
     t = await createTestApp();
     prisma = t.app.get(PrismaService);
   });
-  afterAll(() => t.close());
+  afterAll(async () => {
+    await t.close();
+    vi.unstubAllGlobals();
+  });
 
   const ADDRESS = { recipientName: 'Ann', phone: '0812', line1: 'Jl. Merdeka 1', city: 'Jakarta', region: 'DKI Jakarta', postalCode: '10110' };
 
@@ -233,5 +240,164 @@ describe('Checkout and Orders', () => {
     await guest.get('/api/orders').expect(401);
     await guest.get(`/api/orders/${older.id}`).expect(401);
     await guest.post('/api/orders').set('Idempotency-Key', randomUUID()).send({ addressId: ann.address.id }).expect(401);
+  });
+
+  describe('Admin', () => {
+    const signInAdmin = async () => {
+      const email = `${randomUUID()}@example.com`;
+      await seedAdmin(prisma, email);
+      const a = request.agent(t.app.getHttpServer());
+      const ip = `10.8.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+      const start = await a.post('/api/auth/sign-in/social').set('Origin', ORIGIN).set('X-Forwarded-For', ip).send({ provider: 'google', callbackURL: '/' }).expect(200);
+      const state = new URL(start.body.url).searchParams.get('state')!;
+      await a.get(`/api/auth/callback/google?code=${google.codeFor({ sub: randomUUID(), email })}&state=${state}`).expect(302);
+      return a;
+    };
+    let admin: request.Agent;
+    beforeAll(async () => {
+      admin = await signInAdmin();
+    });
+
+    // A Customer's Order of 2 units of a fresh Variant (Stock 10 before checkout), moved straight to `status`.
+    const order = async (status: 'pending_payment' | 'paid' | 'completed' | 'expired' = 'paid') => {
+      const c = await customer();
+      const tee = await variant({ stock: 10 });
+      await c.addToCart(tee.id, 2);
+      const { body } = await c.checkout().expect(201);
+      if (status !== 'pending_payment') await prisma.order.update({ where: { id: body.id }, data: { status } });
+      return { c, tee, order: { ...body, status } };
+    };
+    const SHIP = { courier: 'JNE', trackingNumber: 'JNE123' };
+
+    it('refuses every Admin Order route to Guests with 401 and to Customers with 403', async () => {
+      const { c } = await order();
+      const guest = request(t.app.getHttpServer());
+      const routes = [
+        ['get', '/api/admin/orders'],
+        ['get', '/api/admin/orders/x'],
+        ['post', '/api/admin/orders/x/ship'],
+        ['post', '/api/admin/orders/x/cancel'],
+      ] as const;
+      for (const [method, path] of routes) {
+        await guest[method](path).expect(401);
+        await c.a[method](path).expect(403);
+      }
+    });
+
+    it('lists Orders newest first, filtered by Order status and Jakarta date, with the Customer', async () => {
+      t.clock.set(new Date('2026-03-10T05:00:00Z'));
+      const a = await order('paid');
+      // 18:00 UTC is already 11 March in Jakarta.
+      t.clock.set(new Date('2026-03-10T18:00:00Z'));
+      const b = await order('pending_payment');
+      const c = await order('paid');
+
+      const list = async (query: string) => (await admin.get(`/api/admin/orders?${query}`).expect(200)).body as { id: string }[];
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id).filter((id) => [a, b, c].some((o) => o.order.id === id));
+
+      expect(ids(await list(''))).toEqual([c.order.id, b.order.id, a.order.id]);
+      expect(ids(await list('status=paid'))).toEqual([c.order.id, a.order.id]);
+      expect(ids(await list('from=2026-03-11&to=2026-03-11'))).toEqual([c.order.id, b.order.id]);
+      expect(ids(await list('to=2026-03-10'))).toEqual([a.order.id]);
+      expect(ids(await list('status=paid&from=2026-03-11'))).toEqual([c.order.id]);
+      const [row] = await list(`status=paid&from=2026-03-10&to=2026-03-10`);
+      expect(row).toEqual({
+        id: a.order.id,
+        number: a.order.number,
+        status: 'paid',
+        total: a.order.total,
+        createdAt: '2026-03-10T05:00:00.000Z',
+        customer: { name: 'Ann Customer', email: a.c.email },
+      });
+      await admin.get('/api/admin/orders?status=lost').expect(400);
+      await admin.get('/api/admin/orders?from=10-03-2026').expect(400);
+    });
+
+    it('shows Order detail: Customer, items, Address and payment info', async () => {
+      const { c, order: o } = await order('pending_payment');
+      const { body } = await admin.get(`/api/admin/orders/${o.id}`).expect(200);
+      expect(body).toEqual({
+        ...o,
+        customer: { name: 'Ann Customer', email: c.email },
+        shipment: null,
+      });
+      expect(body.paymentUrl).toBe(`https://pay.test/${o.number}`);
+      await admin.get('/api/admin/orders/nope').expect(404);
+    });
+
+    const mailsAbout = (c: { email: string }, word: string) => t.mailbox.sent.filter((m) => m.to === c.email && String(m.subject).includes(word));
+    // Waits for `n` emails, then gives any duplicate job time to arrive before asserting there is none.
+    const expectMails = async (c: { email: string }, word: string, n: number) => {
+      await vi.waitFor(() => expect(mailsAbout(c, word)).toHaveLength(n), { timeout: 15_000 });
+      await new Promise((r) => setTimeout(r, 1_000));
+      expect(mailsAbout(c, word)).toHaveLength(n);
+    };
+
+    it('ships a paid Order with courier and tracking number once, emailing the Customer once', async () => {
+      const { c, order: o } = await order('paid');
+      await admin.post(`/api/admin/orders/${o.id}/ship`).send({ courier: 'JNE' }).expect(400);
+      await admin.post(`/api/admin/orders/${o.id}/ship`).send({ courier: ' ', trackingNumber: 'X' }).expect(400);
+
+      t.clock.set(new Date('2026-04-01T02:00:00Z'));
+      const { body: shipped } = await admin.post(`/api/admin/orders/${o.id}/ship`).send(SHIP).expect(200);
+      expect(shipped).toMatchObject({ id: o.id, status: 'shipped', shipment: { ...SHIP, shippedAt: '2026-04-01T02:00:00.000Z' } });
+
+      // A repeat answers with the current Order and changes nothing.
+      t.clock.advance(60_000);
+      await admin.post(`/api/admin/orders/${o.id}/ship`).send({ courier: 'SiCepat', trackingNumber: 'OTHER' }).expect(200, shipped);
+      await admin.get(`/api/admin/orders/${o.id}`).expect(200, shipped);
+      await c.a.get(`/api/orders/${o.id}`).expect(200).expect((r) => expect(r.body.shipment).toEqual(shipped.shipment));
+
+      await expectMails(c, 'shipped', 1);
+      expect(String(mailsAbout(c, 'shipped')[0]!.text)).toContain('JNE123');
+    });
+
+    it('refuses to ship an Order that is not paid', async () => {
+      for (const status of ['pending_payment', 'expired'] as const) {
+        const { c, order: o } = await order(status);
+        await admin.post(`/api/admin/orders/${o.id}/ship`).send(SHIP).expect(409);
+        await admin.get(`/api/admin/orders/${o.id}`).expect(200).expect((r) => expect(r.body).toMatchObject({ status, shipment: null }));
+        expect(mailsAbout(c, 'shipped')).toHaveLength(0);
+      }
+      await admin.post('/api/admin/orders/nope/ship').send(SHIP).expect(404);
+    });
+
+    it('cancels a pending or paid Order once, returning its Stock and emailing the Customer once', async () => {
+      for (const status of ['pending_payment', 'paid'] as const) {
+        const { c, tee, order: o } = await order(status);
+        expect(await stockOf(tee.id)).toBe(8);
+        const { body: cancelled } = await admin.post(`/api/admin/orders/${o.id}/cancel`).expect(200);
+        expect(cancelled).toMatchObject({ id: o.id, status: 'cancelled' });
+        expect(await stockOf(tee.id)).toBe(10);
+
+        // A repeat answers with the current Order and returns no more Stock.
+        await admin.post(`/api/admin/orders/${o.id}/cancel`).expect(200, cancelled);
+        expect(await stockOf(tee.id)).toBe(10);
+        await admin.post(`/api/admin/orders/${o.id}/ship`).send(SHIP).expect(409);
+        await expectMails(c, 'cancelled', 1);
+      }
+    });
+
+    it('releases Stock exactly once when cancels race', async () => {
+      const { tee, order: o } = await order('paid');
+      const results = await Promise.all(Array.from({ length: 5 }, () => admin.post(`/api/admin/orders/${o.id}/cancel`)));
+      expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+      expect(await stockOf(tee.id)).toBe(10);
+    });
+
+    it('refuses to cancel a shipped, completed or expired Order, keeping its Stock out', async () => {
+      const { c, tee, order: o } = await order('paid');
+      await admin.post(`/api/admin/orders/${o.id}/ship`).send(SHIP).expect(200);
+      await admin.post(`/api/admin/orders/${o.id}/cancel`).expect(409);
+      for (const status of ['completed', 'expired'] as const) {
+        const other = await order(status);
+        await admin.post(`/api/admin/orders/${other.order.id}/cancel`).expect(409);
+        expect(await stockOf(other.tee.id)).toBe(8);
+      }
+      await admin.get(`/api/admin/orders/${o.id}`).expect(200).expect((r) => expect(r.body.status).toBe('shipped'));
+      expect(await stockOf(tee.id)).toBe(8);
+      expect(mailsAbout(c, 'cancelled')).toHaveLength(0);
+      await admin.post('/api/admin/orders/nope/cancel').expect(404);
+    });
   });
 });

@@ -240,6 +240,10 @@ model Order {
   postalCode     String
   // The Midtrans Snap payment page, set once when the payment is created; "pay now" reuses it.
   paymentUrl     String?
+  // Set by the Admin when the Order is shipped; shippedAt (from the Clock) starts the auto-complete window.
+  courier        String?
+  trackingNumber String?
+  shippedAt      DateTime?
   items          OrderItem[]
   // From the injected Clock, so the payment deadline and expiry can be tested.
   createdAt      DateTime
