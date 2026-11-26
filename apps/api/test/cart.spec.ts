@@ -68,7 +68,7 @@ describe('Cart', () => {
     const tee = await variant({ productPrice: 100_000 });
     const xl = await variant({ productPrice: 100_000, price: 120_000 });
 
-    await a.get('/api/cart').expect(200, { items: [], subtotal: 0 });
+    await a.get('/api/cart').expect(200, { items: [], subtotal: 0, shippingFee: 0, total: 0 });
     await a.post('/api/cart/items').send({ variantId: tee.id, quantity: 1 }).expect(200);
     await a.post('/api/cart/items').send({ variantId: tee.id, quantity: 2 }).expect(200);
     const { body } = await a.post('/api/cart/items').send({ variantId: xl.id, quantity: 1 }).expect(200);
@@ -77,6 +77,11 @@ describe('Cart', () => {
       expect.objectContaining({ variantId: xl.id, quantity: 1, unitPrice: 120_000, lineTotal: 120_000 }),
     ]);
     expect(body.subtotal).toBe(420_000);
+    // The Shipping fee comes from Store settings. Another test file may change it, so read it now.
+    const { shippingFee } = await prisma.storeSettings.findUniqueOrThrow({ where: { id: 1 } });
+    expect(shippingFee).toBeGreaterThan(0);
+    const { body: priced } = await a.get('/api/cart').expect(200);
+    expect(priced).toMatchObject({ subtotal: 420_000, shippingFee, total: 420_000 + shippingFee });
 
     // Setting a quantity twice lands in the same state.
     await a.put(`/api/cart/items/${tee.id}`).send({ quantity: 5 }).expect(200);
@@ -147,10 +152,24 @@ describe('Cart', () => {
     // Only lines that can be bought count: 90k + 110k + 100k (low) + 8 x 100k (short) + 100k (fine).
     expect(body.subtotal).toBe(1_200_000);
 
-    // Adding again takes the new price as seen, so the notice clears.
+    // Adding again keeps the price first added, so the notice stays.
     await a.post('/api/cart/items').send({ variantId: repriced.id, quantity: 1 }).expect(200);
     const { body: after } = await a.get('/api/cart').expect(200);
-    expect(after.items.find((i: { variantId: string }) => i.variantId === repriced.id)).toMatchObject({ quantity: 2, priceChanged: false });
+    expect(after.items.find((i: { variantId: string }) => i.variantId === repriced.id)).toMatchObject({
+      quantity: 2,
+      unitPrice: 90_000,
+      addedPrice: 100_000,
+      priceChanged: true,
+    });
+  });
+
+  it('charges no Shipping fee when nothing in the Cart can be bought', async () => {
+    const { a } = await signInCustomer();
+    const out = await variant({ stock: 1 });
+    await a.post('/api/cart/items').send({ variantId: out.id, quantity: 1 }).expect(200);
+    await prisma.variant.update({ where: { id: out.id }, data: { stock: 0 } });
+    const { body } = await a.get('/api/cart').expect(200);
+    expect(body).toMatchObject({ subtotal: 0, shippingFee: 0, total: 0 });
   });
 
   it('keeps the Cart across sessions and devices, and shows each Customer only their own', async () => {
@@ -167,7 +186,7 @@ describe('Cart', () => {
     expect(body.items).toEqual([expect.objectContaining({ variantId: tee.id, quantity: 2 })]);
 
     // Bob sees an empty Cart and can't change or remove Ann's item.
-    await bob.a.get('/api/cart').expect(200, { items: [], subtotal: 0 });
+    await bob.a.get('/api/cart').expect(200, { items: [], subtotal: 0, shippingFee: 0, total: 0 });
     await bob.a.put(`/api/cart/items/${tee.id}`).send({ quantity: 9 }).expect(404);
     await bob.a.delete(`/api/cart/items/${tee.id}`).expect(404);
     await bob.a.post('/api/cart/items').send({ variantId: tee.id, quantity: 1 }).expect(200);

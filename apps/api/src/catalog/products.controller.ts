@@ -74,6 +74,7 @@ const toProduct = ({ optionTypes, variants, ...p }: ProductRow): AdminProduct =>
 const checkImages = (urls?: string[]) => {
   if (urls?.some((url) => !isStoredImage(url))) throw new BadRequestException('images: upload images through /admin/uploads');
 };
+const checkImage = (url?: string | null) => checkImages(url ? [url] : undefined);
 
 // Admin management of Products and their Variants. Both are archived, never deleted.
 @Controller('admin')
@@ -126,7 +127,7 @@ export class ProductsController {
   @Post('products/:id/variants')
   async addVariant(@Param('id') productId: string, @Body() body: unknown): Promise<AdminVariant> {
     const { optionValueIds, price, ...data } = parseBody(VariantInput, body);
-    checkImages(data.image ? [data.image] : undefined);
+    checkImage(data.image);
     await this.checkOptionValues(await this.find(productId), optionValueIds);
     const row = await this.prisma.variant.create({
       data: { ...data, price: price ?? null, productId, optionValues: { connect: optionValueIds.map((id) => ({ id })) } },
@@ -138,7 +139,7 @@ export class ProductsController {
   @Patch('variants/:id')
   async updateVariant(@Param('id') id: string, @Body() body: unknown): Promise<AdminVariant> {
     const { optionValueIds, ...data } = parseBody(VariantUpdate, body);
-    checkImages(data.image ? [data.image] : undefined);
+    checkImage(data.image);
     if (optionValueIds) {
       const variant = await this.prisma.variant.findUnique({ where: { id }, select: { productId: true } });
       if (!variant) throw new NotFoundException();

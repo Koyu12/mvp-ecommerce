@@ -1,16 +1,16 @@
 'use client';
 
-import { LOW_STOCK, type StorefrontProduct, type StorefrontVariant } from '@mvp/shared';
+import { MAX_CART_QUANTITY, stockState, type StorefrontProduct, type StorefrontVariant } from '@mvp/shared';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
 import { authClient } from '../../../lib/auth-client';
 import { useSubmit } from '../../../lib/use-submit';
-import { formatIdr } from '../../admin/admin-only';
+import { formatIdr } from '../../../lib/format';
 
-const stockState = (variant: StorefrontVariant) =>
-  variant.stock === 0 ? 'Out of stock' : variant.stock <= LOW_STOCK ?`Only ${variant.stock} left` : 'In stock';
+const stockLabel = ({ stock }: StorefrontVariant) =>
+  ({ in_stock: 'In stock', low_stock: `Only ${stock} left`, out_of_stock: 'Out of stock' })[stockState(stock)];
 
 function AddToCart({ variant }: { variant: StorefrontVariant | undefined }) {
   const session = authClient.useSession();
@@ -36,7 +36,7 @@ function AddToCartForm({ variant }: { variant: StorefrontVariant | undefined }) 
   return (
     <form onSubmit={onSubmit}>
       <label>
-        Quantity <input name="quantity" type="number" min={1} max={99} defaultValue={1} required />
+        Quantity <input name="quantity" type="number" min={1} max={MAX_CART_QUANTITY} defaultValue={1} required />
       </label>{' '}
       <button disabled={pending || !variant || variant.stock === 0}>Add to cart</button>
       {added && (
@@ -108,7 +108,7 @@ export default function ProductPage() {
       ))}
       {variant ? (
         <p>
-          <strong>{formatIdr(variant.effectivePrice)}</strong> · <span aria-live="polite">{stockState(variant)}</span>
+          <strong>{formatIdr(variant.effectivePrice)}</strong> · <span aria-live="polite">{stockLabel(variant)}</span>
         </p>
       ) : (
         <p aria-live="polite">This combination is not available.</p>

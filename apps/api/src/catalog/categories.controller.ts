@@ -7,6 +7,11 @@ import { PrismaErrorFilter } from './prisma-error.filter';
 
 const FIELDS = { id: true, name: true } as const;
 
+// Every Category by name; the storefront lists the same.
+export const listCategories = (prisma: PrismaService): Promise<Category[]> =>
+  prisma.category.findMany({ orderBy: { name: 'asc' }, select: FIELDS });
+
+// Admin management of Categories. One with Products can't be deleted, so no Product is left without one.
 @Controller('admin/categories')
 @UseGuards(AdminGuard)
 @UseFilters(PrismaErrorFilter)
@@ -15,7 +20,7 @@ export class CategoriesController {
 
   @Get()
   list(): Promise<Category[]> {
-    return this.prisma.category.findMany({ orderBy: { name: 'asc' }, select: FIELDS });
+    return listCategories(this.prisma);
   }
 
   @Post()

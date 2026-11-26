@@ -7,7 +7,8 @@ import { type ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
 import { uploadImage } from '../../../../lib/upload';
 import { useSubmit } from '../../../../lib/use-submit';
-import { AdminOnly, formatIdr } from '../../admin-only';
+import { formatIdr } from '../../../../lib/format';
+import { AdminOnly } from '../../admin-only';
 import { ProductForm, useCatalogChoices } from '../product-form';
 
 // A blank price field means "use the Product price".

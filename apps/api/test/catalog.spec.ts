@@ -436,6 +436,12 @@ describe('Storefront', () => {
     // Price and options must hold for the same Variant: Small red's M/Blue is 250k but not Red.
     expect(await ids(`minPrice=200000&maxPrice=260000&optionValueIds=${red}`)).toEqual([]);
     expect(await ids('maxPrice=99999')).toEqual([]);
+    // "From" price is the cheapest Variant that matches the filters, not the cheapest overall.
+    const from = async (query: string) =>
+      (await t.http().get(`/api/products?categoryId=${cat.id}&${query}`).expect(200)).body.items.find((p: { name: string }) => p.name === 'Small red').fromPrice;
+    expect(await from(`optionValueIds=${blue}`)).toBe(250_000);
+    expect(await from('minPrice=200000')).toBe(250_000);
+    expect(await from('')).toBe(100_000);
     expect(await ids(`optionValueIds=nope`)).toEqual([]);
     await t.http().get('/api/products?minPrice=abc').expect(400);
   });

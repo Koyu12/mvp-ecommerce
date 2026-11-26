@@ -1,6 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
+import { IMAGE_TYPES } from '@mvp/shared';
 
 export type PresignRequest = { key: string; contentType: string; size: number };
 
@@ -37,9 +38,12 @@ export class S3Presigner extends Presigner {
 // Where uploaded objects are served from, e.g. the R2 bucket's public domain.
 export const publicImageBase = () => (process.env.STORAGE_PUBLIC_URL ?? 'http://localhost:9000/images').replace(/\/$/, '');
 
-/** True for URLs that point into our own storage; nothing else may be saved as an image. */
+// The only key shape UploadsController issues: images/<uuid>.<extension>.
+const ISSUED_KEY = new RegExp(`^images/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(${Object.values(IMAGE_TYPES).join('|')})$`);
+
+/** True only for a URL exactly as an upload was issued; nothing else may be saved as an image. */
 export const isStoredImage = (url: string) => {
-  // Only already-normalised URLs, so `/images/../other` cannot escape the base once a browser resolves it.
-  const href = URL.parse(url)?.href;
-  return href === url && href.startsWith(`${publicImageBase()}/`);
+  const base = `${publicImageBase()}/`;
+  // The key pattern allows no `/`, `..`, query or fragment, so nothing can point elsewhere.
+  return url.startsWith(base) && ISSUED_KEY.test(url.slice(base.length));
 };

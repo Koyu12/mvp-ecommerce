@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, Suspense, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
-import { formatIdr } from '../admin/admin-only';
+import { formatIdr } from '../../lib/format';
 
 // Category pages, search and filters are one listing driven by the URL, so every result page can be linked to.
 function Listing() {

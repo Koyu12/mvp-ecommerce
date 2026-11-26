@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '../../../lib/api';
-import { AdminOnly, formatIdr } from '../admin-only';
+import { formatIdr } from '../../../lib/format';
+import { AdminOnly } from '../admin-only';
 import { ProductForm } from './product-form';
 
 function ProductList() {

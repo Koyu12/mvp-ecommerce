@@ -1,10 +1,10 @@
 'use client';
 
-import type { Cart, CartLine } from '@mvp/shared';
+import { type Cart, type CartLine, MAX_CART_QUANTITY } from '@mvp/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
-import { formatIdr } from '../admin/admin-only';
+import { formatIdr } from '../../lib/format';
 
 const availability = (line: CartLine) =>
   ({
@@ -55,7 +55,7 @@ export default function CartPage() {
                     <input
                       type="number"
                       min={1}
-                      max={99}
+                      max={MAX_CART_QUANTITY}
                       defaultValue={line.quantity}
                       disabled={line.availability === 'archived'}
                       onBlur={(e) => {
@@ -70,8 +70,10 @@ export default function CartPage() {
               </li>
             ))}
           </ul>
+          <p>Subtotal: {formatIdr(cart.subtotal)}</p>
+          <p>Shipping fee: {formatIdr(cart.shippingFee)}</p>
           <p>
-            Subtotal: <strong>{formatIdr(cart.subtotal)}</strong> (Shipping fee added at checkout)
+            Total: <strong>{formatIdr(cart.total)}</strong>
           </p>
         </>
       )}

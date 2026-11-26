@@ -1,10 +1,9 @@
 import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Put, UseGuards } from '@nestjs/common';
-import { type Cart, type CartAvailability, CartItemInput, CartQuantity, effectivePrice, LOW_STOCK } from '@mvp/shared';
+import { type Cart, type CartAvailability, CartItemInput, CartQuantity, effectivePrice, MAX_CART_QUANTITY, stockState } from '@mvp/shared';
 import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
 import { parseBody } from '../common/parse-body';
 import { PrismaService } from '../infra/prisma.service';
-
-const MAX_QUANTITY = 99;
+import { readStoreSettings } from '../settings/settings';
 
 // The signed-in Customer's one Cart: their cart_item rows. Every query is scoped to their userId, so
 // another Customer's item answers 404 like one not in the Cart. Nothing here touches Stock.
@@ -36,11 +35,7 @@ export class CartController {
     });
     const items = rows.map(({ quantity, addedPrice, variant: v }) => {
       const unitPrice = effectivePrice(v, v.product);
-      const availability: CartAvailability =
-        v.archived || v.product.archived ? 'archived'
-        : v.stock === 0 ? 'out_of_stock'
-        : v.stock <= LOW_STOCK || v.stock < quantity ? 'low_stock'
-        : 'in_stock';
+      const availability: CartAvailability = v.archived || v.product.archived ? 'archived' : stockState(v.stock, quantity);
       return {
         variantId: v.id,
         productId: v.product.id,
@@ -56,11 +51,15 @@ export class CartController {
         availability,
       };
     });
-    const subtotal = items.reduce((sum, i) => (i.availability === 'archived' || i.availability === 'out_of_stock' ? sum : sum + i.lineTotal), 0);
-    return { items, subtotal };
+    const billable = items.filter((i) => i.availability !== 'archived' && i.availability !== 'out_of_stock');
+    const subtotal = billable.reduce((sum, i) => sum + i.lineTotal, 0);
+    // Nothing to ship, so no fee.
+    const shippingFee = billable.length ? (await readStoreSettings(this.prisma)).shippingFee : 0;
+    return { items, subtotal, shippingFee, total: subtotal + shippingFee };
   }
 
-  // Adds to the quantity already in the Cart, and records the price the Customer sees now.
+  // Adds to the quantity already in the Cart. The price seen is recorded only when the item is first added,
+  // so a later price change stays flagged.
   @Post('items')
   @HttpCode(200)
   async add(@CurrentUser() user: SessionUser, @Body() body: unknown): Promise<Cart> {
@@ -75,7 +74,7 @@ export class CartController {
       INSERT INTO cart_item ("userId", "variantId", quantity, "addedPrice", "updatedAt")
       VALUES (${user.id}, ${variantId}, ${quantity}, ${effectivePrice(variant, variant.product)}, now())
       ON CONFLICT ("userId", "variantId") DO UPDATE
-      SET quantity = LEAST(cart_item.quantity + EXCLUDED.quantity, ${MAX_QUANTITY}), "addedPrice" = EXCLUDED."addedPrice", "updatedAt" = now()`;
+      SET quantity = LEAST(cart_item.quantity + EXCLUDED.quantity, ${MAX_CART_QUANTITY}), "updatedAt" = now()`;
     return this.get(user);
   }
 
