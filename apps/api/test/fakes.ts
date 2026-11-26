@@ -25,8 +25,14 @@ export class CapturingMailTransport implements Transport<SentMessageInfo> {
   name = 'capturing';
   version = '1';
   sent: MailInput[] = [];
+  /** Number of upcoming sends to reject, to simulate an SMTP outage. */
+  failNext = 0;
 
   send(mail: MailMessage, callback: (err: Error | null, info: SentMessageInfo) => void): void {
+    if (this.failNext > 0) {
+      this.failNext--;
+      return callback(new Error('SMTP unavailable'), { envelope: mail.message.getEnvelope(), messageId: '' });
+    }
     this.sent.push(mail.data);
     callback(null, { envelope: mail.message.getEnvelope(), messageId: mail.message.messageId() });
   }

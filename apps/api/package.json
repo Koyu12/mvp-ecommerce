@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@mvp/shared": "workspace:*",
+    "@nestjs/bullmq": "^12.0.2",
     "@nestjs/common": "^12.6.2",
     "@nestjs/core": "^12.6.2",
     "@nestjs/platform-express": "^12.6.2",
     "@prisma/client": "~6.19.3",
+    "better-auth": "^1.7.28",
+    "bullmq": "^6.7.10",
     "ioredis": "^6.1.0",
     "nodemailer": "^10.6.1",
     "reflect-metadata": "^0.2.2",

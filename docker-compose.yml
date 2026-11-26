@@ -38,6 +38,9 @@ services:
       REDIS_URL: redis://redis:6379
       SMTP_URL: smtp://mailpit:1025
       PORT: 3001
+      # Local-only secret; set a real one anywhere else.
+      BETTER_AUTH_SECRET: local-dev-secret-not-for-production-use
+      BETTER_AUTH_URL: http://localhost:3000
     ports:
       - '3001:3001'
     depends_on:
