@@ -9,7 +9,7 @@ export default function Home() {
       <h1>MVP Store</h1>
       <ApiStatus />
       <nav>
-        <Link href="/signup">Sign up</Link> · <Link href="/login">Log in</Link> ·{' '}
+        <Link href="/products">Shop</Link> · <Link href="/signup">Sign up</Link> · <Link href="/login">Log in</Link> ·{' '}
         <Link href="/account">My account</Link> · <Link href="/account/password">Change password</Link>
         <AdminLink />
         <LogoutButton />

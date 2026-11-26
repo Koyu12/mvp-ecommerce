@@ -135,3 +135,43 @@ export type UploadTarget = { uploadUrl: string; url: string };
 // Store settings, editable by Admins. The Shipping fee is integer IDR, capped at Postgres' 4-byte int.
 export const StoreSettings = z.object({ shippingFee: z.number().int().min(0).max(2_147_483_647) });
 export type StoreSettings = z.infer<typeof StoreSettings>;
+
+// Storefront. Public, so only Products and Variants on sale (not Archived) ever appear.
+const csv = z
+  .string()
+  .transform((s) => s.split(',').filter(Boolean))
+  .pipe(ids);
+const amount = z.coerce.number().pipe(idr);
+export const StorefrontQuery = z.object({
+  categoryId: z.string().min(1).optional(),
+  // Name search.
+  q: z.string().trim().max(100).optional(),
+  minPrice: amount.optional(),
+  maxPrice: amount.optional(),
+  // Option value ids, comma-separated. Values of one Option type are alternatives (M or L); different types must all match (M and Red).
+  optionValueIds: csv.optional(),
+  page: z.coerce.number().pipe(z.int().min(1).max(10_000)).default(1),
+  pageSize: z.coerce.number().pipe(z.int().min(1).max(50)).default(20),
+});
+export type StorefrontQuery = z.input<typeof StorefrontQuery>;
+
+export type ProductSummary = {
+  id: string;
+  name: string;
+  categoryId: string;
+  // Lowest effective price among its Variants on sale.
+  fromPrice: number;
+  inStock: boolean;
+};
+export type ProductPage = { items: ProductSummary[]; total: number; page: number; pageSize: number };
+
+export type StorefrontVariant = { id: string; optionValueIds: string[]; effectivePrice: number; stock: number };
+export type StorefrontProduct = {
+  id: string;
+  name: string;
+  description: string;
+  category: Category;
+  // Only the Option values some Variant on sale uses, so every pick can resolve to a Variant.
+  optionTypes: OptionType[];
+  variants: StorefrontVariant[];
+};

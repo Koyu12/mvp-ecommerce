@@ -152,6 +152,8 @@ model Product {
   updatedAt   DateTime     @updatedAt
 
   @@index([categoryId])
+  // Trigram index so the storefront's case-insensitive name search (ILIKE) needn't scan every Product.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("product")
 }
 
