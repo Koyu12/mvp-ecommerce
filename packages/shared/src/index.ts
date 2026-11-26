@@ -49,3 +49,7 @@ export const AddressUpdate = AddressInput.partial();
 
 // A saved Address: the parsed input fields, every one present (line2 may be null), plus its id.
 export type Address = { id: string } & Required<z.output<typeof AddressInput>>;
+
+// Store settings, editable by Admins. The Shipping fee is integer IDR, capped at Postgres' 4-byte int.
+export const StoreSettings = z.object({ shippingFee: z.number().int().min(0).max(2_147_483_647) });
+export type StoreSettings = z.infer<typeof StoreSettings>;

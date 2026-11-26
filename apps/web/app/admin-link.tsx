@@ -12,6 +12,8 @@ export function AdminLink() {
     <>
       {' · '}
       <Link href="/admin/users">Users</Link>
+      {' · '}
+      <Link href="/admin/settings">Settings</Link>
     </>
   );
 }

@@ -10,6 +10,7 @@ import { MAIL_TRANSPORT, MailService } from './email/mail';
 import { PrismaService } from './infra/prisma.service';
 import { ProfileController } from './account/profile.controller';
 import { RedisService } from './infra/redis.service';
+import { SettingsController } from './settings/settings.controller';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { RedisService } from './infra/redis.service';
       defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true },
     }),
   ],
-  controllers: [HealthController, ProfileController, AddressesController],
+  controllers: [HealthController, ProfileController, AddressesController, SettingsController],
   providers: [
     PrismaService,
     RedisService,
