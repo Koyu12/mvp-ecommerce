@@ -448,7 +448,9 @@ describe('Storefront', () => {
       types: [size.id],
       variants: [{ values: [s], stock: 0 }, { values: [m], price: 220_000, stock: 4 }, { values: [l], archived: true }],
     });
-    const variants = await prisma.variant.findMany({ where: { productId: p.id }, orderBy: { createdAt: 'asc' } });
+    // Looked up by Option value: Variants created in one statement can share a createdAt.
+    const rows = await prisma.variant.findMany({ where: { productId: p.id }, include: { optionValues: true } });
+    const variants = [s, m].map((id) => rows.find((v) => v.optionValues[0]?.id === id)!);
 
     const { body } = await t.http().get(`/api/products/${p.id}`).expect(200);
     expect(body).toEqual({

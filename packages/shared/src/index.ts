@@ -159,3 +159,31 @@ export type StorefrontProduct = {
   optionTypes: OptionType[];
   variants: StorefrontVariant[];
 };
+
+// Cart. It holds Variants and quantities only; prices and Stock are read live on every Cart read.
+// At or below this Stock, a Variant shows "only N left".
+export const LOW_STOCK = 5;
+const cartQuantity = z.int().min(1).max(99);
+export const CartItemInput = z.object({ variantId: z.string().min(1), quantity: cartQuantity });
+export type CartItemInput = z.input<typeof CartItemInput>;
+export const CartQuantity = z.object({ quantity: cartQuantity });
+export type CartQuantity = z.input<typeof CartQuantity>;
+// low_stock: at or below LOW_STOCK, or fewer left than the quantity wanted. archived: the Variant or its Product is no longer sold.
+export type CartAvailability = 'in_stock' | 'low_stock' | 'out_of_stock' | 'archived';
+export type CartLine = {
+  variantId: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  options: string[];
+  quantity: number;
+  // Live effective price, and the one the Customer saw when they last added the item.
+  unitPrice: number;
+  addedPrice: number;
+  priceChanged: boolean;
+  lineTotal: number;
+  stock: number;
+  availability: CartAvailability;
+};
+// subtotal counts only lines that can be bought now (not archived, not out of stock). No Shipping fee: checkout adds it.
+export type Cart = { items: CartLine[]; subtotal: number };
