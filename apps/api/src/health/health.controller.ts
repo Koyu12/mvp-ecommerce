@@ -1,25 +1,15 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import type { HealthResponse } from '@mvp/shared';
-import { Clock } from '../infra/clock';
-import { PrismaService } from '../infra/prisma.service';
-import { RedisService } from '../infra/redis.service';
-
-const probe = (check: Promise<unknown>) => check.then(() => 'up' as const, () => 'down' as const);
+import { HealthService } from './health.service';
 
 @Controller('health')
 export class HealthController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
-    private readonly clock: Clock,
-  ) {}
+  constructor(private readonly health: HealthService) {}
 
   @Get()
   async check(): Promise<HealthResponse> {
-    const [database, redis] = await Promise.all([probe(this.prisma.$queryRaw`SELECT 1`), probe(this.redis.ping())]);
-    const ok = database === 'up' && redis === 'up';
-    const body: HealthResponse = { status: ok ? 'ok' : 'degraded', database, redis, time: this.clock.now().toISOString() };
-    if (!ok) throw new ServiceUnavailableException(body);
+    const body = await this.health.check();
+    if (body.status !== 'ok') throw new ServiceUnavailableException(body);
     return body;
   }
 }
