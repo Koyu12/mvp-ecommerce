@@ -4,7 +4,7 @@ import { type FormEvent, useState } from 'react';
 
 type Result = { error: { message?: string; status: number } | null };
 
-// Runs a Better Auth call from a form and tracks its pending and error state.
+// Runs a form's Better Auth or Nest `api()` call (both answer `{ error }`) and tracks its pending and error state.
 export function useSubmit(action: (form: FormData) => Promise<Result | void>) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);

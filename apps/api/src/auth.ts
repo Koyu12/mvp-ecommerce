@@ -1,11 +1,18 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { admin } from 'better-auth/plugins';
+import { createAccessControl } from 'better-auth/plugins/access';
+import { ADMIN, isAdmin, normaliseEmail } from '@mvp/shared';
 import { Clock } from './clock';
 import { EmailQueue } from './email.queue';
 import { PrismaService } from './prisma.service';
 
 export const AUTH = Symbol('AUTH');
+
+// Admins may only list users and promote them (spec #1); every other /admin/* route answers 403.
+const ac = createAccessControl({ user: ['list', 'set-role'] } as const);
+const roles = { admin: ac.newRole({ user: ['list', 'set-role'] }), customer: ac.newRole({ user: [] }) };
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
@@ -36,11 +43,10 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
     // The web origin: email links and cookies go through the Next.js /api proxy (ADR 0001).
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
     database: prismaAdapter(prisma, { provider: 'postgresql' }),
-    user: {
-      additionalFields: {
-        role: { type: 'string', defaultValue: 'customer', input: false },
-      },
-    },
+    plugins: [
+      // Adds `role` and the /admin/* routes, open to Admins only and limited by `roles` above.
+      admin({ ac, roles, defaultRole: 'customer', adminRoles: [ADMIN] }),
+    ],
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
@@ -51,13 +57,13 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
       before: createAuthMiddleware(async (ctx) => {
         const email: unknown = ctx.body?.email;
         if (typeof email !== 'string') return;
-        const key = email.trim().toLowerCase();
+        const key = normaliseEmail(email);
 
         if (ctx.path === '/sign-in/email') {
           if (!loginPerEmail(key)) throw new APIError('TOO_MANY_REQUESTS', { message: 'Too many login attempts' });
           // Admins sign in with Google only (ADR 0004); answer as for a wrong password so this doesn't reveal Admin emails.
           const user = await prisma.user.findUnique({ where: { email: key }, select: { role: true } });
-          if (user?.role === 'admin') {
+          if (isAdmin(user)) {
             throw new APIError('UNAUTHORIZED', { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' });
           }
         }
@@ -83,6 +89,41 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
         '/request-password-reset': { window: 60, max: 3 },
         '/reset-password': { window: 60, max: 5 },
       },
+    },
+    account: {
+      // Better Auth's default refuses to link Google to an unverified password account (see
+      // docs/notes/4-google-linking.md). We link instead, and the hook below drops that password.
+      accountLinking: { requireLocalEmailVerified: false },
+    },
+    databaseHooks: {
+      user: {
+        update: {
+          // A session made by password sign-in must not become an Admin session (ADR 0004): promotion
+          // signs the user out everywhere, so their next session comes from Google.
+          after: async (user, ctx) => {
+            if (ctx?.path === '/admin/set-role' && isAdmin({ role: user.role })) {
+              await prisma.session.deleteMany({ where: { userId: user.id } });
+            }
+          },
+        },
+      },
+      account: {
+        create: {
+          // Pre-account takeover: a password set on an email nobody verified may belong to someone else,
+          // so it stops working once the real owner proves the email through Google. Runs before
+          // Better Auth marks the user verified, so `emailVerified: false` still identifies that case.
+          after: async (account) => {
+            if (account.providerId === 'credential') return;
+            await prisma.account.deleteMany({
+              where: { userId: account.userId, providerId: 'credential', user: { emailVerified: false } },
+            });
+          },
+        },
+      },
+    },
+    socialProviders: {
+      // Google reports email_verified, so a new user arrives verified and links by email to an existing one.
+      google: { clientId: process.env.GOOGLE_CLIENT_ID ?? '', clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '' },
     },
     emailVerification: {
       sendOnSignUp: true,
