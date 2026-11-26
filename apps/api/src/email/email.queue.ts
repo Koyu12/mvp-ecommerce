@@ -23,6 +23,14 @@ export class EmailQueue {
     await this.queue.add('send', email, { jobId });
   }
 
+  // For an alert whose cause repeats (a retried notification, every expiry run) but must go out once: the job is kept
+  // after sending, so its id stays taken. False when that id was already queued or sent.
+  async enqueueOnce(email: EmailJob, jobId: string): Promise<boolean> {
+    if (await this.queue.getJob(jobId)) return false;
+    await this.queue.add('send', email, { jobId, removeOnComplete: false });
+    return true;
+  }
+
   // For an email sent after a change already committed: if Redis is down the change stands and only
   // this email is lost (accepted in the spec), so log instead of failing the request.
   async enqueueAfterCommit(email: EmailJob, jobId: string): Promise<void> {

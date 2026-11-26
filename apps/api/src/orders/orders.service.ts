@@ -413,14 +413,14 @@ export class OrdersService {
   }
 
   // Pays a pending Order whose total matches the amount Midtrans received, and queues the paid emails once.
-  // Shared by the notification and the expiry job; a no-op for an Order already paid, expired or cancelled.
+  // Shared by the notification and the expiry job; a no-op for an Order already paid.
   private async markPaid(orderNumber: string, amount: number): Promise<void> {
     const [order] = await this.prisma.order.updateManyAndReturn({
       where: { number: orderNumber, status: 'pending_payment', total: amount },
       data: { status: 'paid' },
       select: { id: true, number: true, total: true, user: { select: { email: true } } },
     });
-    if (!order) return;
+    if (!order) return this.refusedPayment(orderNumber, amount);
 
     const admins = await this.users.adminEmails();
     await this.emails.enqueueAfterCommit(
@@ -437,6 +437,35 @@ export class OrdersService {
         orderEmailJobId(order.id, 'paid-admin'),
       );
     }
+  }
+
+  // Money Midtrans took that didn't pay the Order: the Admin settles it by hand in the Midtrans dashboard.
+  // A wrong amount leaves the Order pending; money for an ended Order is refunded. Duplicates for a paid Order are ignored.
+  private async refusedPayment(orderNumber: string, amount: number): Promise<void> {
+    const order = await this.prisma.order.findUnique({ where: { number: orderNumber }, select: { id: true, status: true, total: true } });
+    if (order?.status === 'pending_payment') {
+      await this.alertAdmins(order.id, 'payment-mismatch', {
+        subject: `Check Order ${orderNumber}: paid amount does not match`,
+        text: `Midtrans reports Rp${amount} paid for Order ${orderNumber}, but its total is Rp${order.total}. The Order was left pending; check the payment in the Midtrans dashboard.`,
+      });
+    } else if (order?.status === 'cancelled' || order?.status === 'expired') {
+      await this.alertAdmins(order.id, 'paid-after-end', {
+        subject: `Refund Order ${orderNumber}: paid after it was ${order.status}`,
+        text: `Midtrans reports Rp${amount} paid for Order ${orderNumber}, which is ${order.status}. Refund the payment in the Midtrans dashboard.`,
+      });
+    }
+  }
+
+  // Logs and emails the Admins once per Order and event, however often the cause repeats.
+  private async alertAdmins(orderId: string, event: 'payment-mismatch' | 'paid-after-end', { subject, text }: { subject: string; text: string }) {
+    let first = true;
+    try {
+      const to = (await this.users.adminEmails()).join(', ');
+      if (to) first = await this.emails.enqueueOnce({ to, subject, text }, orderEmailJobId(orderId, event));
+    } catch (error) {
+      this.logger.error(`Could not queue the Admin alert ${orderEmailJobId(orderId, event)}`, error);
+    }
+    if (first) this.logger.error(text);
   }
 
   // Ends an Order left unpaid: past its deadline (the expiry job) or whose payment Midtrans expired or cancelled.

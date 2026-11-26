@@ -266,4 +266,40 @@ describe('Payment', () => {
     expect(await statusOf(order.id)).toBe('pending_payment');
     expect(c.mails('Payment received')).toHaveLength(0);
   });
+
+  // An Admin, and the alerts about one Order that reach them.
+  const anAdmin = async () => {
+    const admin = await prisma.user.create({ data: { id: randomUUID(), name: 'Admin', email: `${randomUUID()}@example.com`, emailVerified: true, role: 'admin' } });
+    return (number: string, subject: string) =>
+      t.mailbox.sent.filter((m) => String(m.to).includes(admin.email) && String(m.subject).includes(number) && String(m.subject).includes(subject));
+  };
+
+  it('leaves the Order pending on a signed paid notification for the wrong amount, alerting the Admin once', async () => {
+    const alerts = await anAdmin();
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await notify(order, { gross_amount: '1.00' }).expect(200);
+    await vi.waitFor(() => expect(alerts(order.number, 'amount')).toHaveLength(1), { timeout: 15_000 });
+
+    // Midtrans retries the notification: no second alert.
+    await notify(order, { gross_amount: '1.00' }).expect(200);
+    await settle();
+    expect(alerts(order.number, 'amount')).toHaveLength(1);
+    expect(await statusOf(order.id)).toBe('pending_payment');
+  });
+
+  it('keeps a cancelled Order cancelled when its payment arrives, alerting the Admin once to refund it', async () => {
+    const alerts = await anAdmin();
+    const c = await customer();
+    const { body: order } = await c.checkout().expect(201);
+    await c.a.post(`/api/orders/${order.id}/cancel`).expect(200);
+    await notify(order).expect(200);
+    await vi.waitFor(() => expect(alerts(order.number, 'Refund')).toHaveLength(1), { timeout: 15_000 });
+
+    await notify(order).expect(200);
+    await settle();
+    expect(alerts(order.number, 'Refund')).toHaveLength(1);
+    expect(await statusOf(order.id)).toBe('cancelled');
+    expect(c.mails('Payment received')).toHaveLength(0);
+  });
 });

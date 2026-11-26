@@ -127,6 +127,23 @@ describe('Unpaid Order expiry', () => {
     expect(mails(o.email, 'Payment received')).toHaveLength(1);
   });
 
+  it('leaves an Order pending when Get Status reports it paid for the wrong amount, alerting the Admin once', async () => {
+    const admin = await prisma.user.create({ data: { id: randomUUID(), name: 'Admin', email: `${randomUUID()}@example.com`, emailVerified: true, role: 'admin' } });
+    const o = await pendingOrder();
+    const alerts = () => t.mailbox.sent.filter((m) => String(m.to).includes(admin.email) && String(m.subject).includes(o.order.number));
+    t.payments.statuses.set(o.order.number, { transaction_status: 'settlement', gross_amount: '1.00' });
+    pastDeadline();
+    await sweep();
+    await vi.waitFor(() => expect(alerts()).toHaveLength(1), { timeout: 15_000 });
+
+    // Every later run sees it again; the Admin is told once.
+    await sweep();
+    await settle();
+    expect(alerts()).toHaveLength(1);
+    expect(await o.status()).toBe('pending_payment');
+    expect(await o.stock()).toBe(8);
+  });
+
   it('leaves a card payment held for a fraud challenge pending', async () => {
     const o = await pendingOrder();
     t.payments.statuses.set(o.order.number, { transaction_status: 'capture', fraud_status: 'challenge', gross_amount: `${o.order.total}.00` });
