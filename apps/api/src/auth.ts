@@ -1,6 +1,8 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { admin } from 'better-auth/plugins';
+import { adminAc, userAc } from 'better-auth/plugins/admin/access';
 import { Clock } from './clock';
 import { EmailQueue } from './email.queue';
 import { PrismaService } from './prisma.service';
@@ -36,11 +38,10 @@ export function createAuth(prisma: PrismaService, emails: EmailQueue, clock: Clo
     // The web origin: email links and cookies go through the Next.js /api proxy (ADR 0001).
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3000',
     database: prismaAdapter(prisma, { provider: 'postgresql' }),
-    user: {
-      additionalFields: {
-        role: { type: 'string', defaultValue: 'customer', input: false },
-      },
-    },
+    plugins: [
+      // Adds `role` and the /admin/* routes (list-users, set-role, ...), open to Admins only.
+      admin({ roles: { admin: adminAc, customer: userAc }, defaultRole: 'customer', adminRoles: ['admin'] }),
+    ],
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
