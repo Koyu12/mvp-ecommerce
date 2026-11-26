@@ -121,8 +121,13 @@ export class OrdersService {
       throw error;
     }
     const order = await this.get(user.id, orderId);
-    await this.queueCreatedEmail(user.email, order);
-    return this.withPayment(order, user.email);
+    // The email carries the payment link, so it waits for it. If the gateway failed, it goes out with the Order page link only.
+    const placed = await this.withPayment(order, user.email).catch(async (error: unknown) => {
+      await this.queueCreatedEmail(user.email, order);
+      throw error;
+    });
+    await this.queueCreatedEmail(user.email, placed);
+    return placed;
   }
 
   // A failed gateway call answers 502; retrying with the same key creates the payment then.
@@ -461,14 +466,16 @@ export class OrdersService {
 
   // After commit. If Redis is down the Order stands and only this email is lost (accepted in the spec).
   private async queueCreatedEmail(to: string, order: Order): Promise<void> {
-    const deadline = new Date(Date.parse(order.createdAt) + PAYMENT_WINDOW_MS);
+    // The Store's customers read WIB (UTC+7, no DST).
+    const deadline = new Date(Date.parse(order.createdAt) + PAYMENT_WINDOW_MS + 7 * 3600_000).toISOString().slice(0, 16).replace('T', ' ');
     const lines = order.items.map((i) => `${i.quantity} x ${i.productName} (${[i.sku, ...i.options].join(', ')}): Rp${i.lineTotal}`);
     const text = [
       `Thank you for your Order ${order.number}.`,
       ...lines,
       `Shipping: Rp${order.shippingFee}`,
       `Total: Rp${order.total}`,
-      `Please pay by ${deadline.toISOString()}, or the Order expires.`,
+      ...(order.paymentUrl ? [`Pay now: ${order.paymentUrl}`] : []),
+      `Please pay by ${deadline} WIB, or the Order expires.`,
       `See your Order: ${webUrl()}/orders/${order.id}`,
     ].join('\n');
     await this.emails.enqueueAfterCommit({ to, subject: `Order ${order.number} created`, text }, orderEmailJobId(order.id, 'created'));

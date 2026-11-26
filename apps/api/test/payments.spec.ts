@@ -140,11 +140,29 @@ describe('Payment', () => {
     expect(t.payments.requests.filter((r) => r.orderNumber === order.number)).toHaveLength(1);
   });
 
-  it('answers 502 when the gateway fails, and a retry with the same key starts the payment', async () => {
+  it('emails the Order created with its payment link and the payment deadline in WIB', async () => {
+    const c = await customer();
+    // A day no other test file filters on: the files share one database.
+    t.clock.set(new Date('2026-06-15T10:00:00Z'));
+    const { body: order } = await c.checkout().expect(201);
+    await vi.waitFor(() => expect(c.mails(`Order ${order.number} created`)).toHaveLength(1), { timeout: 15_000 });
+    const text = String(c.mails(`Order ${order.number} created`)[0]!.text);
+    expect(text).toContain(`Pay now: https://pay.test/${order.number}`);
+    // 30 minutes after 17:00 WIB (10:00 UTC).
+    expect(text).toContain('Please pay by 2026-06-15 17:30 WIB');
+  });
+
+  it('answers 502 when the gateway fails, still emails the Order with its page link, and a retry with the same key starts the payment', async () => {
     const c = await customer();
     const key = randomUUID();
     t.payments.failNext = 1;
     await c.checkout(key).expect(502);
+    const [placed] = await prisma.order.findMany({ where: { user: { email: c.email } } });
+    await vi.waitFor(() => expect(c.mails(`Order ${placed!.number} created`)).toHaveLength(1), { timeout: 15_000 });
+    const text = String(c.mails(`Order ${placed!.number} created`)[0]!.text);
+    expect(text).not.toContain('Pay now');
+    expect(text).toContain(`See your Order: http://localhost:3000/orders/${placed!.id}`);
+
     const { body: order } = await c.checkout(key).expect(201);
     expect(order.paymentUrl).toBe(`https://pay.test/${order.number}`);
   });
