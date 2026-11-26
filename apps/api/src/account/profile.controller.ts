@@ -1,25 +1,22 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { type Profile, ProfileUpdate } from '@mvp/shared';
 import { parseBody } from '../common/parse-body';
-import { PrismaService } from '../infra/prisma.service';
 import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
-
-const PROFILE_FIELDS = { name: true, email: true, phone: true } as const;
+import { ProfileService } from './profile.service';
 
 // The signed-in Customer's own profile. Email changes are not offered here.
 @Controller('profile')
 @UseGuards(SessionGuard)
 export class ProfileController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly profiles: ProfileService) {}
 
   @Get()
   get(@CurrentUser() user: SessionUser): Promise<Profile> {
-    return this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: PROFILE_FIELDS });
+    return this.profiles.get(user.id);
   }
 
   @Patch()
   update(@CurrentUser() user: SessionUser, @Body() body: unknown): Promise<Profile> {
-    const data = parseBody(ProfileUpdate, body);
-    return this.prisma.user.update({ where: { id: user.id }, data, select: PROFILE_FIELDS });
+    return this.profiles.update(user.id, parseBody(ProfileUpdate, body));
   }
 }
