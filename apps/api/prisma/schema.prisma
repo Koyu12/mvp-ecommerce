@@ -143,6 +143,8 @@ model Product {
   categoryId  String
   category    Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   price       Int
+  // Uploaded image URLs in display order; the first is the main image.
+  images      String[]     @default([])
   archived    Boolean      @default(false)
   // The Option types its Variants each pick exactly one value from.
   optionTypes OptionType[]
@@ -165,6 +167,8 @@ model Variant {
   stock        Int
   // Overrides the Product price when set.
   price        Int?
+  // Uploaded image URL showing this Variant, such as its colour.
+  image        String?
   archived     Boolean       @default(false)
   optionValues OptionValue[]
   cartItems    CartItem[]

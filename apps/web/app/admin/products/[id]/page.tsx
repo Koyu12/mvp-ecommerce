@@ -1,16 +1,113 @@
 'use client';
 
-import type { AdminProduct, AdminVariant, OptionType, VariantInput } from '@mvp/shared';
+import { type AdminProduct, type AdminVariant, IMAGE_TYPES, type OptionType, type VariantInput } from '@mvp/shared';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { api } from '../../../../lib/api';
+import { uploadImage } from '../../../../lib/upload';
 import { useSubmit } from '../../../../lib/use-submit';
 import { AdminOnly, formatIdr } from '../../admin-only';
 import { ProductForm, useCatalogChoices } from '../product-form';
 
 // A blank price field means "use the Product price".
 const priceField = (form: FormData) => (form.get('price') === '' ? null : Number(form.get('price')));
+
+const ACCEPT = Object.keys(IMAGE_TYPES).join(',');
+
+// Uploads each picked file in turn and hands over their URLs; the input is cleared so the same file can be picked again.
+function useImagePicker(onUploaded: (urls: string[]) => Promise<{ error: { message?: string } | null }>) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const onChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = '';
+    setPending(true);
+    setError(null);
+    const urls: string[] = [];
+    for (const file of files) {
+      const result = await uploadImage(file);
+      if (!result.url) {
+        setError(result.error);
+        break;
+      }
+      urls.push(result.url);
+    }
+    if (urls.length) {
+      const saved = await onUploaded(urls);
+      if (saved.error) setError(saved.error.message ?? 'Could not save the image.');
+    }
+    setPending(false);
+  };
+  return { onChange, error, pending };
+}
+
+// The Product's images in display order; the first is the main image. Every change saves at once.
+function ProductImages({ product, onSaved }: { product: AdminProduct; onSaved: (p: AdminProduct) => void }) {
+  const save = async (images: string[]) => {
+    const result = await api<AdminProduct>(`/admin/products/${product.id}`, 'PATCH', { images });
+    if (result.data) onSaved(result.data);
+    return result;
+  };
+  const picker = useImagePicker((urls) => save([...product.images, ...urls]));
+  const move = (i: number, by: number) => {
+    const images = [...product.images];
+    [images[i], images[i + by]] = [images[i + by], images[i]];
+    void save(images);
+  };
+  return (
+    <>
+      <h2>Images</h2>
+      <ol>
+        {product.images.map((url, i) => (
+          <li key={url}>
+            <img src={url} alt={`${product.name}, image ${i + 1}`} width={120} />{' '}
+            <button type="button" disabled={i === 0} onClick={() => move(i, -1)}>
+              Move up
+            </button>{' '}
+            <button type="button" disabled={i === product.images.length - 1} onClick={() => move(i, 1)}>
+              Move down
+            </button>{' '}
+            <button type="button" onClick={() => void save(product.images.filter((u) => u !== url))}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ol>
+      <label>
+        Add images (JPEG, PNG or WebP, up to 5 MB){' '}
+        <input type="file" accept={ACCEPT} multiple disabled={picker.pending} onChange={picker.onChange} />
+      </label>
+      {picker.error && <p role="alert">{picker.error}</p>}
+    </>
+  );
+}
+
+function VariantImage({ variant, onSaved }: { variant: AdminVariant; onSaved: () => void }) {
+  const save = async (image: string | null) => {
+    const result = await api(`/admin/variants/${variant.id}`, 'PATCH', { image });
+    if (!result.error) onSaved();
+    return result;
+  };
+  const picker = useImagePicker(([url]) => save(url));
+  return (
+    <span>
+      {variant.image && (
+        <>
+          <img src={variant.image} alt={`Variant ${variant.sku}`} width={60} />{' '}
+          <button type="button" onClick={() => void save(null)}>
+            Remove image
+          </button>{' '}
+        </>
+      )}
+      <label>
+        {variant.image ? 'Replace image' : 'Image'}{' '}
+        <input type="file" accept={ACCEPT} disabled={picker.pending} onChange={picker.onChange} />
+      </label>
+      {picker.error && <p role="alert">{picker.error}</p>}
+    </span>
+  );
+}
 
 function VariantRow({ variant, labels, onSaved }: { variant: AdminVariant; labels: string; onSaved: () => void }) {
   const { onSubmit, error, pending } = useSubmit(async (form) => {
@@ -42,6 +139,7 @@ function VariantRow({ variant, labels, onSaved }: { variant: AdminVariant; label
         Sells for {formatIdr(variant.effectivePrice)} <button disabled={pending}>Save</button>
         {error && <p role="alert">{error}</p>}
       </form>
+      <VariantImage variant={variant} onSaved={onSaved} />
     </li>
   );
 }
@@ -109,6 +207,7 @@ export default function AdminProductPage() {
           <h1>{product.name}</h1>
           {/* key remounts the form with fresh values after each save */}
           <ProductForm key={JSON.stringify(product)} product={product} onSaved={setProduct} />
+          <ProductImages product={product} onSaved={setProduct} />
           <h2>Variants</h2>
           <ul>
             {product.variants.map((v) => (

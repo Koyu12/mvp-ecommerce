@@ -9,10 +9,12 @@ import { Clock, SystemClock } from './infra/clock';
 import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email/email.queue';
 import { HealthController } from './health/health.controller';
 import { MAIL_TRANSPORT, MailService } from './email/mail';
+import { Presigner, S3Presigner } from './media/presigner';
 import { PrismaService } from './infra/prisma.service';
 import { ProfileController } from './account/profile.controller';
 import { RedisService } from './infra/redis.service';
 import { SettingsController } from './settings/settings.controller';
+import { UploadsController } from './media/uploads.controller';
 
 @Module({
   imports: [
@@ -28,7 +30,7 @@ import { SettingsController } from './settings/settings.controller';
       defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true },
     }),
   ],
-  controllers: [HealthController, ProfileController, AddressesController, SettingsController, ...CATALOG_CONTROLLERS, CartController],
+  controllers: [HealthController, ProfileController, AddressesController, SettingsController, UploadsController, ...CATALOG_CONTROLLERS, CartController],
   providers: [
     PrismaService,
     RedisService,
@@ -37,6 +39,7 @@ import { SettingsController } from './settings/settings.controller';
     EmailProcessor,
     { provide: AUTH, useFactory: createAuth, inject: [PrismaService, EmailQueue, Clock] },
     { provide: Clock, useClass: SystemClock },
+    { provide: Presigner, useClass: S3Presigner },
     { provide: MAIL_TRANSPORT, useValue: process.env.SMTP_URL ?? 'smtp://localhost:1025' },
   ],
 })

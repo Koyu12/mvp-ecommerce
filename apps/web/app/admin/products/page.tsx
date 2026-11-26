@@ -28,6 +28,7 @@ function ProductList() {
         {products.map((p) => (
           <tr key={p.id}>
             <td>
+              {p.images[0] && <img src={p.images[0]} alt="" width={40} />}{' '}
               <Link href={`/admin/products/${p.id}`}>{p.name}</Link>
             </td>
             <td>{formatIdr(p.price)}</td>
