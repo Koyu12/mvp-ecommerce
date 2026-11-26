@@ -32,4 +32,10 @@ export class OrdersController {
   cancel(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Order> {
     return this.orders.cancel(user.id, id);
   }
+
+  @Post(':id/received')
+  @HttpCode(200)
+  received(@CurrentUser() user: SessionUser, @Param('id') id: string): Promise<Order> {
+    return this.orders.received(user.id, id);
+  }
 }

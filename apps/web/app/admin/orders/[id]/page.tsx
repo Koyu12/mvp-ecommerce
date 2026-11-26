@@ -34,6 +34,11 @@ function OrderDetail({ id }: { id: string }) {
     if (result.data) setOrder(result.data);
     return result;
   });
+  const complete = useSubmit(async () => {
+    const result = await api<AdminOrder>(`/admin/orders/${id}/complete`, 'POST');
+    if (result.data) setOrder(result.data);
+    return result;
+  });
 
   if (error) return <p role="alert">{error}</p>;
   if (!order) return null;
@@ -108,6 +113,12 @@ function OrderDetail({ id }: { id: string }) {
         <form onSubmit={cancel.onSubmit}>
           {cancel.error && <p role="alert">{cancel.error}</p>}
           <button disabled={cancel.pending}>Cancel order</button>
+        </form>
+      )}
+      {order.status === 'shipped' && (
+        <form onSubmit={complete.onSubmit}>
+          {complete.error && <p role="alert">{complete.error}</p>}
+          <button disabled={complete.pending}>Mark completed</button>
         </form>
       )}
     </>

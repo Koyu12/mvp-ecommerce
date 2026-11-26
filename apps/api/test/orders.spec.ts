@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedAdmin } from '../src/auth/seed';
 import { PrismaService } from '../src/infra/prisma.service';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
 import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
 import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
@@ -312,7 +313,7 @@ describe('Checkout and Orders', () => {
     });
 
     // A Customer's Order of 2 units of a fresh Variant (Stock 10 before checkout), moved straight to `status`.
-    const order = async (status: 'pending_payment' | 'paid' | 'completed' | 'expired' = 'paid') => {
+    const order = async (status: 'pending_payment' | 'paid' | 'completed' | 'cancelled' | 'expired' = 'paid') => {
       const c = await customer();
       const tee = await variant({ stock: 10 });
       await c.addToCart(tee.id, 2);
@@ -330,6 +331,7 @@ describe('Checkout and Orders', () => {
         ['get', '/api/admin/orders/x'],
         ['post', '/api/admin/orders/x/ship'],
         ['post', '/api/admin/orders/x/cancel'],
+        ['post', '/api/admin/orders/x/complete'],
       ] as const;
       for (const [method, path] of routes) {
         await guest[method](path).expect(401);
@@ -453,6 +455,63 @@ describe('Checkout and Orders', () => {
       expect(await stockOf(tee.id)).toBe(8);
       expect(mailsAbout(c, 'cancelled')).toHaveLength(0);
       await admin.post('/api/admin/orders/nope/cancel').expect(404);
+    });
+
+    // A paid Order the Admin has shipped.
+    const shippedOrder = async () => {
+      const o = await order('paid');
+      await admin.post(`/api/admin/orders/${o.order.id}/ship`).send(SHIP).expect(200);
+      return o;
+    };
+    const statusOf = async (id: string) => (await prisma.order.findUniqueOrThrow({ where: { id } })).status;
+
+    it("completes a Customer's own shipped Order when they confirm receipt, once", async () => {
+      const { c, tee, order: o } = await shippedOrder();
+      const other = await customer();
+      await other.a.post(`/api/orders/${o.id}/received`).expect(404);
+      await request(t.app.getHttpServer()).post(`/api/orders/${o.id}/received`).expect(401);
+      expect(await statusOf(o.id)).toBe('shipped');
+
+      const { body: completed } = await c.a.post(`/api/orders/${o.id}/received`).expect(200);
+      expect(completed).toMatchObject({ id: o.id, status: 'completed', shipment: { ...SHIP } });
+      // A repeat answers with the current Order and changes nothing.
+      await c.a.post(`/api/orders/${o.id}/received`).expect(200, completed);
+      await admin.post(`/api/admin/orders/${o.id}/complete`).expect(200).expect((r) => expect(r.body.status).toBe('completed'));
+      expect(await stockOf(tee.id)).toBe(8);
+    });
+
+    it('refuses to complete an Order that is not shipped, for the Customer and the Admin', async () => {
+      for (const status of ['pending_payment', 'paid', 'cancelled', 'expired'] as const) {
+        const { c, order: o } = await order(status);
+        await c.a.post(`/api/orders/${o.id}/received`).expect(409);
+        await admin.post(`/api/admin/orders/${o.id}/complete`).expect(409);
+        expect(await statusOf(o.id)).toBe(status);
+      }
+      await admin.post('/api/admin/orders/nope/complete').expect(404);
+    });
+
+    it('lets the Admin complete a shipped Order once', async () => {
+      const { c, order: o } = await shippedOrder();
+      const { body: completed } = await admin.post(`/api/admin/orders/${o.id}/complete`).expect(200);
+      expect(completed).toMatchObject({ id: o.id, status: 'completed', customer: { email: c.email } });
+      await admin.post(`/api/admin/orders/${o.id}/complete`).expect(200, completed);
+      await c.a.post(`/api/orders/${o.id}/received`).expect(200).expect((r) => expect(r.body.status).toBe('completed'));
+      await admin.post(`/api/admin/orders/${o.id}/cancel`).expect(409);
+    });
+
+    it('completes an Order once when the Customer, the Admin and the auto-complete job race', async () => {
+      const { c, order: o } = await shippedOrder();
+      t.clock.advance(COMPLETION_WINDOW_MS);
+      const job = t.app.get(OrderCompletionProcessor);
+      const [received, completed] = await Promise.all([
+        c.a.post(`/api/orders/${o.id}/received`),
+        admin.post(`/api/admin/orders/${o.id}/complete`),
+        job.sweep(),
+        job.sweep(),
+      ]);
+      // Whichever moved it first wins; the others find it completed and answer it unchanged.
+      expect([received!.status, completed!.status]).toEqual([200, 200]);
+      expect(await statusOf(o.id)).toBe('completed');
     });
   });
 });

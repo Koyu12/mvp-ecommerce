@@ -3,6 +3,7 @@ import { PAYMENT_WINDOW_MS } from '@mvp/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/infra/prisma.service';
+import { COMPLETION_WINDOW_MS, OrderCompletionProcessor } from '../src/jobs/order-completion';
 import { OrderExpiryProcessor } from '../src/jobs/order-expiry';
 import { createTestApp, TestApp } from './test-app';
 
@@ -146,5 +147,70 @@ describe('Unpaid Order expiry', () => {
       expect(['paid', 'expired']).toContain(status);
       expect(await o.stock()).toBe(status === 'paid' ? 8 : 10);
     }
+  });
+});
+
+describe('Shipped Order auto-complete', () => {
+  let t: TestApp;
+  let prisma: PrismaService;
+  let sweep: () => Promise<void>;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    prisma = t.app.get(PrismaService);
+    const job = t.app.get(OrderCompletionProcessor);
+    sweep = () => job.sweep();
+  });
+  afterAll(() => t.close());
+
+  // An Order straight in the database with `status`, shipped at the clock's current time.
+  // Fixtures skip checkout and shipping, which orders.spec.ts covers.
+  const orderIn = async (status: 'paid' | 'shipped' | 'cancelled') => {
+    const user = await prisma.user.create({ data: { id: randomUUID(), name: 'Ann', email: `${randomUUID()}@example.com`, emailVerified: true } });
+    const { id } = await prisma.order.create({
+      data: {
+        number: `ORD-${randomUUID()}`,
+        userId: user.id,
+        idempotencyKey: randomUUID(),
+        status,
+        subtotal: 100_000,
+        shippingFee: 0,
+        total: 100_000,
+        recipientName: 'Ann',
+        phone: '0812',
+        line1: 'Jl. Merdeka 1',
+        city: 'Jakarta',
+        region: 'DKI Jakarta',
+        postalCode: '10110',
+        createdAt: t.clock.now(),
+        ...(status === 'shipped' && { courier: 'JNE', trackingNumber: 'JNE123', shippedAt: t.clock.now() }),
+      },
+    });
+    return async () => (await prisma.order.findUniqueOrThrow({ where: { id } })).status;
+  };
+
+  it('completes exactly the shipped Orders whose 7 days since shipping have passed, once', async () => {
+    const old = await orderIn('shipped');
+    t.clock.advance(1);
+    const recent = await orderIn('shipped');
+    const paid = await orderIn('paid');
+    const cancelled = await orderIn('cancelled');
+
+    // One millisecond short of 7 days for the first Order.
+    t.clock.advance(COMPLETION_WINDOW_MS - 2);
+    await sweep();
+    expect(await old()).toBe('shipped');
+
+    t.clock.advance(1);
+    await sweep();
+    expect(await old()).toBe('completed');
+    expect(await recent()).toBe('shipped');
+
+    t.clock.advance(1);
+    await sweep();
+    await sweep();
+    expect(await recent()).toBe('completed');
+    expect(await paid()).toBe('paid');
+    expect(await cancelled()).toBe('cancelled');
   });
 });
