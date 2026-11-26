@@ -26,6 +26,12 @@ export default function OrderPage() {
     if (r.data) setOrder(r.data);
     setError(r.error ? (r.error.message ?? 'Could not cancel the order.') : null);
   };
+  // Checkout couldn't start the payment: start it now and go to the payment page.
+  const pay = async () => {
+    const r = await api<Order>(`/orders/${id}/pay`, 'POST');
+    if (r.data?.paymentUrl) return window.location.assign(r.data.paymentUrl);
+    setError(r.error?.message ?? 'Could not start the payment. Please try again.');
+  };
   const received = async () => {
     const r = await api<Order>(`/orders/${id}/received`, 'POST');
     if (r.data) setOrder(r.data);
@@ -47,7 +53,13 @@ export default function OrderPage() {
           </p>
           {order.status === 'pending_payment' && (
             <p>
-              {order.paymentUrl && <a href={order.paymentUrl}>Pay now</a>}{' '}
+              {order.paymentUrl ? (
+                <a href={order.paymentUrl}>Pay now</a>
+              ) : (
+                <button type="button" onClick={() => void pay()}>
+                  Pay now
+                </button>
+              )}{' '}
               <button type="button" onClick={() => void cancel()}>
                 Cancel order
               </button>

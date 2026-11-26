@@ -167,6 +167,29 @@ describe('Payment', () => {
     expect(order.paymentUrl).toBe(`https://pay.test/${order.number}`);
   });
 
+  it('starts a failed payment from "Pay now" for the owner of a pending Order within its payment window', async () => {
+    const c = await customer();
+    const other = await customer();
+    t.payments.failNext = 1;
+    await c.checkout().expect(502);
+    const [placed] = await prisma.order.findMany({ where: { user: { email: c.email } } });
+    const pay = (agent = c.a) => agent.post(`/api/orders/${placed!.id}/pay`);
+
+    await request(t.app.getHttpServer()).post(`/api/orders/${placed!.id}/pay`).expect(401);
+    await pay(other.a).expect(404);
+    const { body: order } = await pay().expect(200);
+    expect(order).toMatchObject({ id: placed!.id, status: 'pending_payment', paymentUrl: `https://pay.test/${placed!.number}` });
+    // A repeat answers the same page without a second Snap payment.
+    await pay().expect(200).expect((r) => expect(r.body.paymentUrl).toBe(order.paymentUrl));
+    expect(t.payments.requests.filter((r) => r.orderNumber === placed!.number)).toHaveLength(1);
+
+    t.clock.advance(30 * 60_000);
+    await pay().expect(409);
+    t.clock.advance(-30 * 60_000);
+    await c.a.post(`/api/orders/${placed!.id}/cancel`).expect(200);
+    await pay().expect(409);
+  });
+
   it('marks the Order paid on a valid settlement and queues both emails once', async () => {
     const admin = await prisma.user.create({ data: { id: randomUUID(), name: 'Admin', email: `${randomUUID()}@example.com`, emailVerified: true, role: 'admin' } });
     const adminMails = (number: string) => t.mailbox.sent.filter((m) => String(m.to).includes(admin.email) && String(m.subject).includes(number));

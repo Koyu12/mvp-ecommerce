@@ -130,7 +130,15 @@ export class OrdersService {
     return placed;
   }
 
-  // A failed gateway call answers 502; retrying with the same key creates the payment then.
+  // "Pay now": the Customer's pending Order with its payment page, starting the payment if checkout couldn't.
+  async pay(user: { id: string; email: string }, id: string): Promise<Order> {
+    const order = await this.get(user.id, id);
+    const open = order.status === 'pending_payment' && this.clock.now().getTime() < Date.parse(order.createdAt) + PAYMENT_WINDOW_MS;
+    if (!open) throw new ConflictException(`This Order can no longer be paid; it is ${order.status.replace('_', ' ')}`);
+    return this.withPayment(order, user.email);
+  }
+
+  // A failed gateway call answers 502; retrying with the same key, or "Pay now", creates the payment then.
   private async withPayment(order: Order, email: string): Promise<Order> {
     if (order.status !== 'pending_payment' || order.paymentUrl) return order;
     return { ...order, paymentUrl: await this.startPayment(order, email) };
