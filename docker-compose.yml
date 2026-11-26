@@ -38,8 +38,13 @@ services:
       REDIS_URL: redis://redis:6379
       SMTP_URL: smtp://mailpit:1025
       PORT: 3001
-    ports:
-      - '3001:3001'
+      # Local-only secret; set a real one anywhere else.
+      BETTER_AUTH_SECRET: local-dev-secret-not-for-production-use
+      BETTER_AUTH_URL: http://localhost:3000
+    # No published port: browsers reach the API only through the web app's /api proxy (ADR 0001),
+    # so the auth rate limits can't be skipped by calling the API directly.
+    expose:
+      - '3001'
     depends_on:
       postgres:
         condition: service_healthy
