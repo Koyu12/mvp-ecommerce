@@ -338,3 +338,143 @@ describe('Admin catalog', () => {
     });
   });
 });
+
+describe('Storefront', () => {
+  let t: TestApp;
+  let prisma: PrismaService;
+  const tag = () => randomUUID().slice(0, 8);
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    prisma = t.app.get(PrismaService);
+  });
+  afterAll(() => t.close());
+
+  type VariantSeed = { stock?: number; price?: number | null; archived?: boolean; values?: string[] };
+  // Fixtures go straight to the database; the Admin API that writes them is covered above.
+  const product = async (categoryId: string, name: string, opts: { price?: number; archived?: boolean; types?: string[]; variants?: VariantSeed[] } = {}) =>
+    prisma.product.create({
+      data: {
+        name,
+        description: `About ${name}`,
+        categoryId,
+        price: opts.price ?? 100_000,
+        archived: opts.archived ?? false,
+        optionTypes: { connect: (opts.types ?? []).map((id) => ({ id })) },
+        variants: {
+          create: (opts.variants ?? [{}]).map((v) => ({
+            sku: `SKU-${randomUUID()}`,
+            stock: v.stock ?? 3,
+            price: v.price ?? null,
+            archived: v.archived ?? false,
+            optionValues: { connect: (v.values ?? []).map((id) => ({ id })) },
+          })),
+        },
+      },
+    });
+  const category = () => prisma.category.create({ data: { name: `Cat ${tag()}` } });
+
+  it('lists a Category\'s Products on sale, newest first, a page at a time', async () => {
+    const cat = await category();
+    const other = await category();
+    const a = await product(cat.id, 'Tee A');
+    const b = await product(cat.id, 'Tee B', { price: 90_000, variants: [{ price: 120_000 }, { price: null }] });
+    const c = await product(cat.id, 'Tee C');
+    await product(cat.id, 'Archived tee', { archived: true });
+    await product(cat.id, 'Only archived Variants', { variants: [{ archived: true }] });
+    await product(other.id, 'Elsewhere');
+
+    const { body: first } = await t.http().get(`/api/products?categoryId=${cat.id}&pageSize=2`).expect(200);
+    expect(first).toEqual({
+      items: [
+        { id: c.id, name: 'Tee C', categoryId: cat.id, fromPrice: 100_000, inStock: true },
+        { id: b.id, name: 'Tee B', categoryId: cat.id, fromPrice: 90_000, inStock: true },
+      ],
+      total: 3,
+      page: 1,
+      pageSize: 2,
+    });
+    const { body: second } = await t.http().get(`/api/products?categoryId=${cat.id}&pageSize=2&page=2`).expect(200);
+    expect(second.items.map((p: { id: string }) => p.id)).toEqual([a.id]);
+    await t.http().get('/api/products?pageSize=0').expect(400);
+  });
+
+  it('searches Product names case-insensitively, never showing Archived ones', async () => {
+    const cat = await category();
+    const word = `zq${tag()}`;
+    const hit = await product(cat.id, `Linen ${word.toUpperCase()} shirt`);
+    await product(cat.id, `${word} archived`, { archived: true });
+    await product(cat.id, 'Unrelated shirt');
+
+    const { body } = await t.http().get(`/api/products?q=${word}`).expect(200);
+    expect(body.items.map((p: { id: string }) => p.id)).toEqual([hit.id]);
+    expect(body.total).toBe(1);
+  });
+
+  it('filters by effective price range and by size and colour, all on one Variant on sale', async () => {
+    const cat = await category();
+    const size = await prisma.optionType.create({ data: { name: `Size ${tag()}`, values: { create: [{ value: 'S' }, { value: 'M' }, { value: 'L' }] } }, include: { values: true } });
+    const colour = await prisma.optionType.create({ data: { name: `Colour ${tag()}`, values: { create: [{ value: 'Red' }, { value: 'Blue' }] } }, include: { values: true } });
+    const [s, m, l] = size.values.map((v) => v.id);
+    const [red, blue] = colour.values.map((v) => v.id);
+    const types = [size.id, colour.id];
+    // S/Red at 100k, M/Blue at its own 250k.
+    await product(cat.id, 'Small red', { types, variants: [{ values: [s, red] }, { values: [m, blue], price: 250_000 }] });
+    // M/Red exists only as an Archived Variant.
+    await product(cat.id, 'Archived M red', { types, variants: [{ values: [l, blue] }, { values: [m, red], archived: true }] });
+    await product(cat.id, 'Medium red', { types, price: 300_000, variants: [{ values: [m, red] }] });
+
+    const ids = async (query: string) =>
+      (await t.http().get(`/api/products?categoryId=${cat.id}&${query}`).expect(200)).body.items.map((p: { name: string }) => p.name).sort();
+
+    expect(await ids(`optionValueIds=${m},${red}`)).toEqual(['Medium red']);
+    // Values of one Option type are alternatives.
+    expect(await ids(`optionValueIds=${s},${m},${red}`)).toEqual(['Medium red', 'Small red']);
+    // Price range uses the Variant's own price when set.
+    expect(await ids('minPrice=200000&maxPrice=260000')).toEqual(['Small red']);
+    // Price and options must hold for the same Variant: Small red's M/Blue is 250k but not Red.
+    expect(await ids(`minPrice=200000&maxPrice=260000&optionValueIds=${red}`)).toEqual([]);
+    expect(await ids('maxPrice=99999')).toEqual([]);
+    expect(await ids(`optionValueIds=nope`)).toEqual([]);
+    await t.http().get('/api/products?minPrice=abc').expect(400);
+  });
+
+  it('shows a Product page with its Variants on sale, effective prices, Stock and only usable Option values', async () => {
+    const cat = await category();
+    const size = await prisma.optionType.create({ data: { name: `Size ${tag()}`, values: { create: [{ value: 'S' }, { value: 'M' }, { value: 'L' }] } }, include: { values: true } });
+    const [s, m, l] = size.values.map((v) => v.id);
+    const p = await product(cat.id, 'Hoodie', {
+      price: 200_000,
+      types: [size.id],
+      variants: [{ values: [s], stock: 0 }, { values: [m], price: 220_000, stock: 4 }, { values: [l], archived: true }],
+    });
+    const variants = await prisma.variant.findMany({ where: { productId: p.id }, orderBy: { createdAt: 'asc' } });
+
+    const { body } = await t.http().get(`/api/products/${p.id}`).expect(200);
+    expect(body).toEqual({
+      id: p.id,
+      name: 'Hoodie',
+      description: 'About Hoodie',
+      category: { id: cat.id, name: cat.name },
+      optionTypes: [{ id: size.id, name: size.name, values: [{ id: s, value: 'S' }, { id: m, value: 'M' }] }],
+      variants: expect.arrayContaining([
+        { id: variants[0].id, optionValueIds: [s], effectivePrice: 200_000, stock: 0 },
+        { id: variants[1].id, optionValueIds: [m], effectivePrice: 220_000, stock: 4 },
+      ]),
+    });
+    expect(body.variants).toHaveLength(2);
+
+    const archived = await product(cat.id, 'Gone', { archived: true });
+    await t.http().get(`/api/products/${archived.id}`).expect(404);
+    await t.http().get('/api/products/nope').expect(404);
+  });
+
+  it('lists Categories and Option types to Guests', async () => {
+    const cat = await category();
+    const { body: cats } = await t.http().get('/api/categories').expect(200);
+    expect(cats).toContainEqual({ id: cat.id, name: cat.name });
+    const type = await prisma.optionType.create({ data: { name: `Fit ${tag()}`, values: { create: [{ value: 'Slim' }] } }, include: { values: true } });
+    const { body: types } = await t.http().get('/api/option-types').expect(200);
+    expect(types).toContainEqual({ id: type.id, name: type.name, values: [{ id: type.values[0].id, value: 'Slim' }] });
+  });
+});
