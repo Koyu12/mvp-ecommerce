@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { type Address, AddressInput, AddressUpdate } from '@mvp/shared';
-import { parseBody } from './parse-body';
-import { PrismaService } from './prisma.service';
-import { CurrentUser, SessionGuard, type SessionUser } from './session.guard';
+import { parseBody } from '../common/parse-body';
+import { PrismaService } from '../infra/prisma.service';
+import { CurrentUser, SessionGuard, type SessionUser } from '../auth/session.guard';
 
 // The Address columns a Customer sees, taken from the shared schema so the two can't drift apart.
 const ADDRESS_FIELDS = Object.fromEntries(['id', ...Object.keys(AddressInput.shape)].map((k) => [k, true])) as Record<

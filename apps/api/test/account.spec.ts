@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PrismaService } from '../src/prisma.service';
+import { PrismaService } from '../src/infra/prisma.service';
 import { createTestApp, TestApp } from './test-app';
 
 const ORIGIN = 'http://localhost:3000';

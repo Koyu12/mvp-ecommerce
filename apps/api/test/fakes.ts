@@ -1,6 +1,6 @@
 import type { SentMessageInfo, Transport } from 'nodemailer';
-import { Clock } from '../src/clock';
-import type { MailInput } from '../src/mail';
+import { Clock } from '../src/infra/clock';
+import type { MailInput } from '../src/email/mail';
 
 type MailMessage = Parameters<Transport['send']>[0];
 

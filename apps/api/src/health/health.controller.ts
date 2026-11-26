@@ -1,8 +1,8 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import type { HealthResponse } from '@mvp/shared';
-import { Clock } from './clock';
-import { PrismaService } from './prisma.service';
-import { RedisService } from './redis.service';
+import { Clock } from '../infra/clock';
+import { PrismaService } from '../infra/prisma.service';
+import { RedisService } from '../infra/redis.service';
 
 const probe = (check: Promise<unknown>) => check.then(() => 'up' as const, () => 'down' as const);
 

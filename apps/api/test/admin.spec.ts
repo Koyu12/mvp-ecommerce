@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { PrismaService } from '../src/prisma.service';
-import { seedAdmin } from '../src/seed';
+import { PrismaService } from '../src/infra/prisma.service';
+import { seedAdmin } from '../src/auth/seed';
 import { FakeGoogle } from './fakes';
 import { createTestApp, TestApp } from './test-app';
 

@@ -2,8 +2,8 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule, configureApp } from '../src/app.module';
-import { Clock } from '../src/clock';
-import { MAIL_TRANSPORT, MailService } from '../src/mail';
+import { Clock } from '../src/infra/clock';
+import { MAIL_TRANSPORT, MailService } from '../src/email/mail';
 import { CapturingMailTransport, FakeClock } from './fakes';
 
 export interface TestApp {

@@ -1,15 +1,15 @@
 import { BullModule } from '@nestjs/bullmq';
 import { INestApplication, Module } from '@nestjs/common';
 import { toNodeHandler } from 'better-auth/node';
-import { AddressesController } from './addresses.controller';
-import { Auth, AUTH, createAuth } from './auth';
-import { Clock, SystemClock } from './clock';
-import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email.queue';
-import { HealthController } from './health.controller';
-import { MAIL_TRANSPORT, MailService } from './mail';
-import { PrismaService } from './prisma.service';
-import { ProfileController } from './profile.controller';
-import { RedisService } from './redis.service';
+import { AddressesController } from './account/addresses.controller';
+import { Auth, AUTH, createAuth } from './auth/auth';
+import { Clock, SystemClock } from './infra/clock';
+import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email/email.queue';
+import { HealthController } from './health/health.controller';
+import { MAIL_TRANSPORT, MailService } from './email/mail';
+import { PrismaService } from './infra/prisma.service';
+import { ProfileController } from './account/profile.controller';
+import { RedisService } from './infra/redis.service';
 
 @Module({
   imports: [
