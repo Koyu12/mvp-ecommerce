@@ -71,6 +71,8 @@ export const ProductInput = z.object({
   price: idr,
   // The Option types whose values tell its Variants apart, such as Size and Colour.
   optionTypeIds: ids,
+  // Uploaded image URLs, in display order; the first is the main image.
+  images: z.array(z.url()).max(10).optional(),
 });
 export type ProductInput = z.input<typeof ProductInput>;
 export const ProductUpdate = ProductInput.extend({ archived: z.boolean() }).partial();
@@ -83,6 +85,8 @@ export const VariantInput = z.object({
   price: idr.nullable().optional(),
   // Exactly one per Option type of the Product.
   optionValueIds: ids,
+  // An uploaded image URL showing this Variant, such as its colour; null clears it.
+  image: z.url().nullable().optional(),
 });
 export type VariantInput = z.input<typeof VariantInput>;
 export const VariantUpdate = VariantInput.extend({ archived: z.boolean() }).partial();
@@ -103,6 +107,7 @@ export type AdminVariant = {
   effectivePrice: number;
   archived: boolean;
   optionValueIds: string[];
+  image: string | null;
 };
 export type AdminProduct = {
   id: string;
@@ -112,9 +117,20 @@ export type AdminProduct = {
   price: number;
   archived: boolean;
   optionTypeIds: string[];
+  images: string[];
   variants: AdminVariant[];
 };
 export type LowStockVariant = AdminVariant & { productName: string };
+
+// An Admin's request for a presigned image upload URL. SVG is left out because it can carry scripts.
+export const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as const;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const UploadRequest = z.object({
+  contentType: z.enum(Object.keys(IMAGE_TYPES) as [keyof typeof IMAGE_TYPES]),
+  size: z.int().min(1).max(MAX_IMAGE_BYTES),
+});
+export type UploadRequest = z.input<typeof UploadRequest>;
+export type UploadTarget = { uploadUrl: string; url: string };
 
 // Store settings, editable by Admins. The Shipping fee is integer IDR, capped at Postgres' 4-byte int.
 export const StoreSettings = z.object({ shippingFee: z.number().int().min(0).max(2_147_483_647) });

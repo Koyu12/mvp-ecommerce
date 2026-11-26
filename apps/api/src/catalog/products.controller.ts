@@ -27,6 +27,7 @@ import { Prisma } from '@prisma/client';
 import { AdminGuard } from '../auth/admin.guard';
 import { parseBody } from '../common/parse-body';
 import { PrismaService } from '../infra/prisma.service';
+import { isStoredImage } from '../media/presigner';
 import { PrismaErrorFilter } from './prisma-error.filter';
 
 const VARIANT_FIELDS = {
@@ -36,6 +37,7 @@ const VARIANT_FIELDS = {
   stock: true,
   price: true,
   archived: true,
+  image: true,
   optionValues: { select: { id: true } },
   product: { select: { name: true, price: true } },
 } satisfies Prisma.VariantSelect;
@@ -45,6 +47,7 @@ const PRODUCT_FIELDS = {
   description: true,
   categoryId: true,
   price: true,
+  images: true,
   archived: true,
   optionTypes: { select: { id: true } },
   variants: { select: VARIANT_FIELDS, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
@@ -67,6 +70,11 @@ const toProduct = ({ optionTypes, variants, ...p }: ProductRow): AdminProduct =>
   variants: variants.map(toVariant),
 });
 
+// Only URLs of images uploaded to our storage, so the storefront never shows someone else's content.
+const checkImages = (urls?: string[]) => {
+  if (urls?.some((url) => !isStoredImage(url))) throw new BadRequestException('images: upload images through /admin/uploads');
+};
+
 // Admin management of Products and their Variants. Both are archived, never deleted.
 @Controller('admin')
 @UseGuards(AdminGuard)
@@ -84,6 +92,7 @@ export class ProductsController {
   @Post('products')
   async create(@Body() body: unknown): Promise<AdminProduct> {
     const { optionTypeIds, ...data } = parseBody(ProductInput, body);
+    checkImages(data.images);
     await this.checkReferences(data.categoryId, optionTypeIds);
     const row = await this.prisma.product.create({
       data: { ...data, optionTypes: { connect: optionTypeIds.map((id) => ({ id })) } },
@@ -100,6 +109,7 @@ export class ProductsController {
   @Patch('products/:id')
   async update(@Param('id') id: string, @Body() body: unknown): Promise<AdminProduct> {
     const { optionTypeIds, ...data } = parseBody(ProductUpdate, body);
+    checkImages(data.images);
     const current = await this.find(id);
     await this.checkReferences(data.categoryId, optionTypeIds);
     if (optionTypeIds && current.variants.length && !sameSet(optionTypeIds, sortedIds(current.optionTypes))) {
@@ -116,6 +126,7 @@ export class ProductsController {
   @Post('products/:id/variants')
   async addVariant(@Param('id') productId: string, @Body() body: unknown): Promise<AdminVariant> {
     const { optionValueIds, price, ...data } = parseBody(VariantInput, body);
+    checkImages(data.image ? [data.image] : undefined);
     await this.checkOptionValues(await this.find(productId), optionValueIds);
     const row = await this.prisma.variant.create({
       data: { ...data, price: price ?? null, productId, optionValues: { connect: optionValueIds.map((id) => ({ id })) } },
@@ -127,6 +138,7 @@ export class ProductsController {
   @Patch('variants/:id')
   async updateVariant(@Param('id') id: string, @Body() body: unknown): Promise<AdminVariant> {
     const { optionValueIds, ...data } = parseBody(VariantUpdate, body);
+    checkImages(data.image ? [data.image] : undefined);
     if (optionValueIds) {
       const variant = await this.prisma.variant.findUnique({ where: { id }, select: { productId: true } });
       if (!variant) throw new NotFoundException();

@@ -187,6 +187,7 @@ describe('Admin catalog', () => {
         price: 150_000,
         archived: false,
         optionTypeIds: [size.id, colour.id].sort(),
+        images: [],
         variants: [],
       });
 
