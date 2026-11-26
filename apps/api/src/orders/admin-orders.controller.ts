@@ -29,6 +29,6 @@ export class AdminOrdersController {
   @Post(':id/cancel')
   @HttpCode(200)
   cancel(@Param('id') id: string): Promise<AdminOrder> {
-    return this.orders.cancel(id);
+    return this.orders.adminCancel(id);
   }
 }

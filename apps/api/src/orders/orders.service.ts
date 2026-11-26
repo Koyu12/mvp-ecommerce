@@ -8,6 +8,7 @@ import {
   jakartaDayStart,
   type Order,
   orderNumberDay,
+  type OrderStatus,
   type OrderSummary,
   orderTotal,
   PAYMENT_WINDOW_MS,
@@ -18,6 +19,7 @@ import { Prisma } from '@prisma/client';
 import { type EmailJob, EmailQueue, orderEmailJobId } from '../email/email.queue';
 import { Clock } from '../infra/clock';
 import { PrismaService } from '../infra/prisma.service';
+import { PaymentGateway } from '../payments/payment-gateway';
 import { PaymentsService } from '../payments/payments.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -86,6 +88,7 @@ export class OrdersService {
     private readonly emails: EmailQueue,
     private readonly clock: Clock,
     private readonly payments: PaymentsService,
+    private readonly gateway: PaymentGateway,
   ) {}
 
   // Buys the Customer's whole Cart as one pending_payment Order and starts its payment. Idempotent per Customer and key:
@@ -179,35 +182,23 @@ export class OrdersService {
     return order;
   }
 
-  // pending_payment or paid -> cancelled, once: the status-guarded update and the Stock release share one transaction,
-  // so a repeat, a racing cancel or expiry finds nothing to cancel and Stock is returned a single time.
-  // The refund of a paid Order is done by hand in Midtrans.
-  async cancel(id: string): Promise<AdminOrder> {
-    const cancelled = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.order.updateMany({ where: { id, status: { in: ['pending_payment', 'paid'] } }, data: { status: 'cancelled' } });
-      if (count) await this.releaseStock(tx, id);
-      return count > 0;
-    });
+  // The Admin cancels a pending_payment or paid Order through the same status-guarded end as the Customer, so a repeat
+  // or a racing cancel or expiry returns Stock once. The refund of a paid Order is done by hand in Midtrans.
+  async adminCancel(id: string): Promise<AdminOrder> {
+    const before = await this.adminGet(id);
+    const ended = await this.end(id, 'cancelled', { from: ['pending_payment', 'paid'] });
     const order = await this.adminGet(id);
-    if (!cancelled) {
+    if (!ended) {
       if (order.status === 'cancelled') return order;
       throw new ConflictException(`Only a pending or paid Order can be cancelled; this one is ${order.status}`);
     }
-    await this.queueEmail(orderEmailJobId(id, 'cancelled'), {
-      to: order.customer.email,
-      subject: `Order ${order.number} cancelled`,
-      text: `Your Order ${order.number} has been cancelled. If you already paid, your payment will be refunded.\nSee your Order: ${webUrl()}/orders/${id}`,
-    });
+    await this.queueEndedEmail(
+      ended,
+      'cancelled',
+      `Your Order ${ended.number} has been cancelled by the Store. If you already paid, your payment will be refunded.\nSee your Order: ${webUrl()}/orders/${id}`,
+    );
+    if (before.status === 'pending_payment') await this.expirePayment(ended.number);
     return order;
-  }
-
-  // Returns an Order's reserved Stock to its Variants, inside the caller's transaction. The caller makes sure it runs once.
-  async releaseStock(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
-    // Variant id order, like checkout, so concurrent releases and reservations can't deadlock.
-    const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { variantId: 'asc' }, select: { variantId: true, quantity: true } });
-    for (const { variantId, quantity } of items) {
-      await tx.variant.update({ where: { id: variantId }, data: { stock: { increment: quantity } } });
-    }
   }
 
   private async findByKey(userId: string, idempotencyKey: string): Promise<Order | null> {
@@ -294,6 +285,67 @@ export class OrdersService {
     });
     await tx.cartItem.deleteMany({ where: { userId, variantId: { in: items.map((i) => i.variantId) } } });
     return order.id;
+  }
+
+  // The Customer cancels their own pending_payment Order. Repeating it changes nothing; any other status is refused.
+  async cancel(userId: string, id: string): Promise<Order> {
+    const ended = await this.end(id, 'cancelled', { userId });
+    const order = await this.get(userId, id);
+    if (!ended) {
+      if (order.status === 'cancelled') return order;
+      throw new ConflictException(`A ${order.status.replace('_', ' ')} Order can't be cancelled. Please contact the Store.`);
+    }
+    await this.queueEndedEmail(ended, 'cancelled', `Your Order ${ended.number} is cancelled and nothing will be charged.`);
+    await this.expirePayment(ended.number);
+    return order;
+  }
+
+  // So a cancelled Order's payment page or virtual account can't be paid later. Best effort: Midtrans may not know the Order yet (404).
+  private async expirePayment(number: string): Promise<void> {
+    try {
+      await this.gateway.expire(number);
+    } catch (error) {
+      this.logger.warn(`Could not expire the payment for cancelled ${number}: ${String(error)}`);
+    }
+  }
+
+  // The expiry job ends an Order left unpaid past its deadline. A no-op unless it is still pending_payment.
+  async expire(id: string): Promise<void> {
+    const ended = await this.end(id, 'expired');
+    if (ended) await this.queueEndedEmail(ended, 'expired', `Your Order ${ended.number} expired because it was not paid in time.`);
+  }
+
+  // Moves an Order still in one of `from` (default pending_payment) to `status` and returns its Stock in one transaction.
+  // The status guard makes a concurrent payment, cancel or expiry lose cleanly, so Stock comes back at most once.
+  // Null when it already moved.
+  private async end(id: string, status: 'cancelled' | 'expired', { userId, from = ['pending_payment'] }: { userId?: string; from?: OrderStatus[] } = {}) {
+    return this.prisma.$transaction(async (tx) => {
+      const [order] = await tx.order.updateManyAndReturn({
+        where: { id, userId, status: { in: from } },
+        data: { status },
+        select: { id: true, number: true, user: { select: { email: true } } },
+      });
+      if (order) await this.releaseStock(tx, id);
+      return order ?? null;
+    });
+  }
+
+  // Returns an Order's reserved Stock. Call it in the transaction of the status-guarded update that ended the Order,
+  // never on its own, or Stock could come back twice.
+  async releaseStock(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    // Variant id order, like checkout's reservation, so concurrent transactions can't deadlock.
+    const items = await tx.orderItem.findMany({ where: { orderId }, orderBy: { variantId: 'asc' }, select: { variantId: true, quantity: true } });
+    for (const { variantId, quantity } of items) {
+      await tx.variant.update({ where: { id: variantId }, data: { stock: { increment: quantity } } });
+    }
+  }
+
+  private async queueEndedEmail(order: { id: string; number: string; user: { email: string } }, event: 'cancelled' | 'expired', text: string) {
+    try {
+      await this.emails.enqueue({ to: order.user.email, subject: `Order ${order.number} ${event}`, text }, orderEmailJobId(order.id, event));
+    } catch (error) {
+      this.logger.error(`Could not queue the ${event} email for ${order.number}`, error);
+    }
   }
 
   // After commit. If Redis is down the Order stands and only this email is lost (accepted in the spec).
