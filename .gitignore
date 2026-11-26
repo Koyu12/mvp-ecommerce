@@ -6,4 +6,6 @@ next-env.d.ts
 *.tsbuildinfo
 .env
 coverage/
+test-results/
+playwright-report/
 .claude/worktrees/
