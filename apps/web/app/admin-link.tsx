@@ -11,6 +11,10 @@ export function AdminLink() {
   return (
     <>
       {' · '}
+      <Link href="/admin">Dashboard</Link>
+      {' · '}
+      <Link href="/admin/products">Products</Link>
+      {' · '}
       <Link href="/admin/users">Users</Link>
       {' · '}
       <Link href="/admin/settings">Settings</Link>

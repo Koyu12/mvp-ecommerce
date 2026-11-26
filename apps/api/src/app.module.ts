@@ -3,6 +3,7 @@ import { INestApplication, Module } from '@nestjs/common';
 import { toNodeHandler } from 'better-auth/node';
 import { AddressesController } from './account/addresses.controller';
 import { Auth, AUTH, createAuth } from './auth/auth';
+import { CATALOG_CONTROLLERS } from './catalog/catalog';
 import { Clock, SystemClock } from './infra/clock';
 import { EMAIL_QUEUE, EmailProcessor, EmailQueue } from './email/email.queue';
 import { HealthController } from './health/health.controller';
@@ -26,7 +27,7 @@ import { SettingsController } from './settings/settings.controller';
       defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: true },
     }),
   ],
-  controllers: [HealthController, ProfileController, AddressesController, SettingsController],
+  controllers: [HealthController, ProfileController, AddressesController, SettingsController, ...CATALOG_CONTROLLERS],
   providers: [
     PrismaService,
     RedisService,

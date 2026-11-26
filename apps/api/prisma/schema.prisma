@@ -101,6 +101,76 @@ model Address {
   @@map("address")
 }
 
+// Catalog. All amounts are integer IDR.
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
+
+  @@map("category")
+}
+
+// A kind of choice Variants differ by, such as Size or Colour.
+model OptionType {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  createdAt DateTime      @default(now())
+  values    OptionValue[]
+  products  Product[]
+
+  @@map("option_type")
+}
+
+model OptionValue {
+  id           String     @id @default(cuid())
+  optionTypeId String
+  optionType   OptionType @relation(fields: [optionTypeId], references: [id], onDelete: Restrict)
+  value        String
+  createdAt    DateTime   @default(now())
+  variants     Variant[]
+
+  @@unique([optionTypeId, value])
+  @@map("option_value")
+}
+
+// Archived, never deleted, so past Orders still refer to it.
+model Product {
+  id          String       @id @default(cuid())
+  name        String
+  description String
+  categoryId  String
+  category    Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  price       Int
+  archived    Boolean      @default(false)
+  // The Option types its Variants each pick exactly one value from.
+  optionTypes OptionType[]
+  variants    Variant[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([categoryId])
+  @@map("product")
+}
+
+// Archived, never deleted. Checkout will change stock only by the atomic conditional decrement (ADR 0002).
+model Variant {
+  id           String        @id @default(cuid())
+  productId    String
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sku          String        @unique
+  stock        Int
+  // Overrides the Product price when set.
+  price        Int?
+  archived     Boolean       @default(false)
+  optionValues OptionValue[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([productId])
+  @@map("variant")
+}
+
 // The Store's single settings row (id is always 1). All amounts are integer IDR.
 model StoreSettings {
   id          Int      @id @default(1)
