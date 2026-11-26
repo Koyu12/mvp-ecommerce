@@ -20,6 +20,7 @@ model User {
   emailVerified Boolean   @default(false)
   image         String?
   role          Role      @default(customer)
+  phone         String?
   banned        Boolean?  @default(false)
   banReason     String?
   banExpires    DateTime?
@@ -27,6 +28,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  addresses     Address[]
 
   @@map("user")
 }
@@ -78,4 +80,23 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// A delivery location in a Customer's address book. One country, so no country field.
+model Address {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipientName String
+  phone         String
+  line1         String
+  line2         String?
+  city          String
+  region        String
+  postalCode    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@map("address")
 }
