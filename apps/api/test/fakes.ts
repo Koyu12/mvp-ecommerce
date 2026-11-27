@@ -2,6 +2,7 @@ import type { SentMessageInfo, Transport } from 'nodemailer';
 import { Clock } from '../src/infra/clock';
 import type { MailInput } from '../src/email/mail';
 import { Presigner, type PresignRequest } from '../src/media/presigner';
+import { PaymentGateway, type PaymentRequest, type PaymentStatus } from '../src/payments/payment-gateway';
 
 type MailMessage = Parameters<Transport['send']>[0];
 
@@ -80,5 +81,34 @@ export class FakePresigner extends Presigner {
   async presignPut(request: PresignRequest): Promise<string> {
     this.signed.push(request);
     return `https://storage.test/upload/${request.key}`;
+  }
+}
+
+// Stands in for Midtrans Snap: records each payment and returns a recognisable redirect URL.
+// Get Status answers what a test scripted in `statuses`, else null (404: the Customer never started paying).
+export class FakePaymentGateway extends PaymentGateway {
+  requests: PaymentRequest[] = [];
+  /** Number of upcoming payments to reject, to simulate a Midtrans outage. */
+  failNext = 0;
+
+  async createPayment(request: PaymentRequest): Promise<string> {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new Error('Midtrans unavailable');
+    }
+    this.requests.push(request);
+    return `https://pay.test/${request.orderNumber}`;
+  }
+
+  statuses = new Map<string, PaymentStatus>();
+  /** Order numbers passed to expire, in call order. */
+  expired: string[] = [];
+
+  async getStatus(orderNumber: string): Promise<PaymentStatus | null> {
+    return this.statuses.get(orderNumber) ?? null;
+  }
+
+  async expire(orderNumber: string): Promise<void> {
+    this.expired.push(orderNumber);
   }
 }

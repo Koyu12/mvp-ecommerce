@@ -51,7 +51,7 @@ export default function AdminDashboardPage() {
     <AdminOnly>
       <h1>Dashboard</h1>
       <nav>
-        <Link href="/admin/products">Products</Link> · <Link href="/admin/catalog">Categories and options</Link> ·{' '}
+        <Link href="/admin/orders">Orders</Link> · <Link href="/admin/products">Products</Link> ·<Link href="/admin/catalog">Categories and options</Link> ·{' '}
         <Link href="/admin/users">Users</Link> · <Link href="/admin/settings">Settings</Link>
       </nav>
       <LowStock />

@@ -112,9 +112,11 @@ function VariantImage({ variant, onSaved }: { variant: AdminVariant; onSaved: ()
 
 function VariantRow({ variant, labels, onSaved }: { variant: AdminVariant; labels: string; onSaved: () => void }) {
   const { onSubmit, error, pending } = useSubmit(async (form) => {
+    const stock = Number(form.get('stock'));
     const result = await api(`/admin/variants/${variant.id}`, 'PATCH', {
       sku: String(form.get('sku')),
-      stock: Number(form.get('stock')),
+      // Sent only when edited, with the Stock shown, so a checkout since loading the page gets a 409 instead of being overwritten.
+      ...(stock !== variant.stock && { stock, expectedStock: variant.stock }),
       price: priceField(form),
       archived: form.get('archived') === 'on',
     });

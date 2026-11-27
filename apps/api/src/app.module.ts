@@ -9,7 +9,9 @@ import { CatalogModule } from './catalog/catalog.module';
 import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
 import { InfraModule } from './infra/infra.module';
+import { JobsModule } from './jobs/jobs.module';
 import { MediaModule } from './media/media.module';
+import { OrdersModule } from './orders/orders.module';
 import { SettingsModule } from './settings/settings.module';
 
 @Module({
@@ -31,6 +33,8 @@ import { SettingsModule } from './settings/settings.module';
     SettingsModule,
     CatalogModule,
     CartModule,
+    OrdersModule,
+    JobsModule,
   ],
 })
 export class AppModule {}

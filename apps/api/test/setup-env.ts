@@ -5,5 +5,9 @@ process.env.REDIS_URL = inject('redisUrl');
 // Every test file shares one Redis: a private queue prefix stops other files' workers taking our jobs.
 process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
 process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+process.env.MIDTRANS_SERVER_KEY = 'test-server-key';
 process.env.STORAGE_PUBLIC_URL = 'https://images.test';
 process.env.QUEUE_PREFIX = `test-${crypto.randomUUID()}`;
+// Tests run the expiry and auto-complete sweeps themselves with a fake clock; a scheduled one would race them.
+process.env.ORDER_EXPIRY_SWEEP = 'off';
+process.env.ORDER_COMPLETION_SWEEP = 'off';

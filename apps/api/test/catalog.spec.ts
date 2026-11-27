@@ -235,8 +235,28 @@ describe('Admin catalog', () => {
       expect(after.variants.map((v: { effectivePrice: number }) => v.effectivePrice)).toEqual([160_000, 180_000]);
 
       // Clearing the override falls back to the Product price; Stock is edited the same way.
-      const cleared = await admin.patch(`/api/admin/variants/${dear.id}`).send({ price: null, stock: 7 }).expect(200);
+      const cleared = await admin.patch(`/api/admin/variants/${dear.id}`).send({ price: null, stock: 7, expectedStock: 4 }).expect(200);
       expect(cleared.body).toMatchObject({ price: null, effectivePrice: 160_000, stock: 7 });
+    });
+
+    it('sets Stock only from the value the Admin saw, so a checkout in between is never overwritten', async () => {
+      const { product, size, colour } = await catalog();
+      const { body: v } = await admin
+        .post(`/api/admin/products/${product.id}/variants`)
+        .send({ sku: unique('STOCK'), stock: 5, optionValueIds: [size.s, colour.red] })
+        .expect(201);
+      const url = `/api/admin/variants/${v.id}`;
+
+      await admin.patch(url).send({ stock: 9 }).expect(400);
+      // A checkout reserves 2 after the Admin loaded the form showing 5.
+      await prisma.variant.update({ where: { id: v.id }, data: { stock: 3 } });
+      const { body: stale } = await admin.patch(url).send({ stock: 9, expectedStock: 5, price: 1 }).expect(409);
+      expect(stale.message).toMatch(/Stock changed/);
+      expect(await prisma.variant.findUniqueOrThrow({ where: { id: v.id } })).toMatchObject({ stock: 3, price: null });
+      await admin.patch(url).send({ stock: 9, expectedStock: 3 }).expect(200).expect((r) => expect(r.body.stock).toBe(9));
+      // Edits without Stock need no expected value.
+      await admin.patch(url).send({ price: 1 }).expect(200);
+      await admin.patch('/api/admin/variants/missing').send({ stock: 1, expectedStock: 1 }).expect(404);
     });
 
     it('rejects a duplicate SKU on create and on edit', async () => {
